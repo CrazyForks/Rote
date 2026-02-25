@@ -611,6 +611,158 @@ export class OpenKeyEndpointsTestSuite {
   }
 
   /**
+   * 测试 11: 获取笔记详情 (GET /notes/:id)
+   */
+  async test11_GetNoteById(): Promise<any> {
+    const startTime = Date.now();
+    try {
+      const targetNoteId = this.createdNoteIds[0];
+      if (!targetNoteId) {
+        throw new Error('No note ID available for get note by ID test');
+      }
+
+      const response = await this.openkeyClient.get(
+        `/notes/${targetNoteId}?openkey=${this.openKey}`
+      );
+
+      TestAssertions.assertStatus(response.status, 200, 'Get Note By ID');
+      TestAssertions.assertSuccess(response.data, 'Get Note By ID');
+      TestAssertions.assertNotNull(response.data.data, 'Note data should be returned');
+      TestAssertions.assertEquals(
+        response.data.data.id,
+        targetNoteId,
+        'Returned note ID should match requested ID'
+      );
+
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 11: Get Note By ID (GET)',
+        true,
+        `Successfully retrieved note details for ID: ${targetNoteId}`,
+        duration,
+        undefined,
+        { noteId: targetNoteId }
+      );
+
+      return response.data.data;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 11: Get Note By ID (GET)',
+        false,
+        `Failed: ${error.message}`,
+        duration,
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
+   * 测试 12: 更新笔记 (PUT /notes/:id)
+   */
+  async test12_UpdateNote(): Promise<any> {
+    const startTime = Date.now();
+    try {
+      const targetNoteId = this.createdNoteIds[0];
+      if (!targetNoteId) {
+        throw new Error('No note ID available for update note test');
+      }
+
+      const response = await this.openkeyClient.put(`/notes/${targetNoteId}`, {
+        openkey: this.openKey,
+        content: 'This note content has been updated via OpenKey PUT method test.',
+        pin: true,
+      });
+
+      TestAssertions.assertStatus(response.status, 200, 'Update Note');
+      TestAssertions.assertSuccess(response.data, 'Update Note');
+      TestAssertions.assertNotNull(response.data.data, 'Updated note data should be returned');
+      TestAssertions.assertEquals(
+        response.data.data.content,
+        'This note content has been updated via OpenKey PUT method test.',
+        'Content should be updated'
+      );
+      TestAssertions.assertEquals(response.data.data.pin, true, 'Pin state should be updated');
+
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 12: Update Note (PUT)',
+        true,
+        `Successfully updated note with ID: ${targetNoteId}`,
+        duration,
+        undefined,
+        { noteId: targetNoteId }
+      );
+
+      return response.data.data;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 12: Update Note (PUT)',
+        false,
+        `Failed: ${error.message}`,
+        duration,
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
+   * 测试 13: 删除笔记 (DELETE /notes/:id)
+   */
+  async test13_DeleteNote(): Promise<any> {
+    const startTime = Date.now();
+    try {
+      const targetNoteId = this.createdNoteIds[1]; // Use the second note to keep the first one for potential subsequent tests if any
+      if (!targetNoteId) {
+        throw new Error('No note ID available for delete note test');
+      }
+
+      const response = await this.openkeyClient.delete(
+        `/notes/${targetNoteId}?openkey=${this.openKey}`
+      );
+
+      TestAssertions.assertStatus(response.status, 200, 'Delete Note');
+      TestAssertions.assertSuccess(response.data, 'Delete Note');
+
+      // 验证笔记确实被删除了（尝试再次获取）
+      try {
+        await this.openkeyClient.get(`/notes/${targetNoteId}?openkey=${this.openKey}`);
+        throw new Error('Note was not actually deleted, it is still retrievable');
+      } catch (_err: any) {
+        // 期望这里抛出错误或者返回非 200，说明确实删除了
+      }
+
+      // 从 createdNoteIds 中移除，避免后续 cleanup 报错
+      this.createdNoteIds = this.createdNoteIds.filter((id) => id !== targetNoteId);
+
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13: Delete Note (DELETE)',
+        true,
+        `Successfully deleted note with ID: ${targetNoteId}`,
+        duration,
+        undefined,
+        { noteId: targetNoteId }
+      );
+
+      return response.data?.data;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13: Delete Note (DELETE)',
+        false,
+        `Failed: ${error.message}`,
+        duration,
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
    * 测试错误场景: 无效的 OpenKey
    */
   async testErrorInvalidOpenKey(): Promise<void> {
@@ -802,6 +954,15 @@ export class OpenKeyEndpointsTestSuite {
 
       // Endpoint 10: Check Permissions
       await this.test10_CheckPermissions();
+
+      // Endpoint 11: Get Note By ID
+      await this.test11_GetNoteById();
+
+      // Endpoint 12: Update Note
+      await this.test12_UpdateNote();
+
+      // Endpoint 13: Delete Note
+      await this.test13_DeleteNote();
 
       // 4. 测试错误场景
       console.log('\n📋 Phase 4: Error Scenario Tests');

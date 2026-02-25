@@ -9,7 +9,11 @@ import {
   addReaction,
   createArticle,
   createRote,
+  deleteRote,
+  deleteRoteAttachmentsByRoteId,
+  deleteRoteLinkPreviewsByRoteId,
   editMyProfile,
+  editRote,
   findMyRote,
   findRoteById,
   getMyProfile,
@@ -17,11 +21,12 @@ import {
   searchMyRotes,
   setNoteArticleId,
 } from '../../utils/dbMethods';
-import { parseAndStoreRoteLinkPreviews } from '../../utils/linkPreview';
+import { extractUrlsFromContent, parseAndStoreRoteLinkPreviews } from '../../utils/linkPreview';
 import { createResponse, isOpenKeyOk, isValidUUID } from '../../utils/main';
 import {
   ArticleCreateZod,
   NoteCreateZod,
+  NoteUpdateZod,
   ReactionCreateZod,
   SearchKeywordZod,
   UsernameUpdateZod,
@@ -349,6 +354,93 @@ router.get('/notes/search', isOpenKeyOk, requireOpenKeyPerm('GETROTE'), async (c
   );
 
   return c.json(createResponse(rotes), 200);
+});
+
+// Get note by ID using API key
+router.get('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('GETROTE'), async (c: HonoContext) => {
+  const openKey = c.get('openKey')!;
+  const id = c.req.param('id');
+
+  if (!id || !isValidUUID(id)) {
+    throw new Error('Invalid or missing ID');
+  }
+
+  const rote = await findRoteById(id);
+  if (!rote) {
+    throw new Error('Note not found');
+  }
+
+  if (rote.state === 'public' || rote.authorid === openKey.userid) {
+    return c.json(createResponse(rote), 200);
+  }
+
+  throw new Error('Access denied: note is private');
+});
+
+// Update note using API key
+router.put('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('EDITROTE'), async (c: HonoContext) => {
+  const openKey = c.get('openKey')!;
+  const id = c.req.param('id');
+  const body = await c.req.json();
+
+  if (!id || !isValidUUID(id)) {
+    throw new Error('Invalid or missing ID');
+  }
+
+  NoteUpdateZod.parse(body);
+
+  await editRote({ ...body, id, authorid: openKey.userid });
+
+  let articleIdToSet: string | null | undefined;
+  if ('articleId' in (body as any)) {
+    const articleId = (body as any).articleId;
+    articleIdToSet = typeof articleId === 'string' ? articleId : (articleId ?? null);
+  } else if (Array.isArray((body as any).articleIds)) {
+    articleIdToSet = (body as any).articleIds.length > 0 ? (body as any).articleIds[0] : null;
+  }
+
+  if (articleIdToSet !== undefined) {
+    await setNoteArticleId(id, articleIdToSet, openKey.userid);
+  }
+
+  const data = await findRoteById(id);
+  const hasArticle = Boolean(data?.articleId || data?.article);
+  const contentProvided = Object.prototype.hasOwnProperty.call(body, 'content');
+  const contentForPreview = contentProvided ? (body as any).content : data?.content;
+
+  if (hasArticle && articleIdToSet !== undefined) {
+    await deleteRoteLinkPreviewsByRoteId(id);
+  } else if (
+    (contentProvided || articleIdToSet !== undefined) &&
+    typeof contentForPreview === 'string'
+  ) {
+    const urls = extractUrlsFromContent(contentForPreview);
+    if (urls.length === 0 || hasArticle) {
+      await deleteRoteLinkPreviewsByRoteId(id);
+    } else {
+      await deleteRoteLinkPreviewsByRoteId(id);
+      void parseAndStoreRoteLinkPreviews(id, contentForPreview).catch((error) => {
+        console.error('Failed to parse link previews:', error);
+      });
+    }
+  }
+
+  return c.json(createResponse(data), 200);
+});
+
+// Delete note using API key
+router.delete('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('EDITROTE'), async (c: HonoContext) => {
+  const openKey = c.get('openKey')!;
+  const id = c.req.param('id');
+
+  if (!id || !isValidUUID(id)) {
+    throw new Error('Invalid or missing ID');
+  }
+
+  const data = await deleteRote({ id, authorid: openKey.userid });
+  await deleteRoteAttachmentsByRoteId(id, openKey.userid);
+
+  return c.json(createResponse(data), 200);
 });
 
 // Query current OpenKey permissions
