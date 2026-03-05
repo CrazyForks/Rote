@@ -340,10 +340,17 @@ class TestRunner {
 
       const apiKey1 = await this.apiKeySuite.testGenerateApiKey();
       const _apiKey2 = await this.apiKeySuite.testGenerateApiKey();
+      const _apiKeyWithPermissions = await this.apiKeySuite.testGenerateApiKeyWithPermissions([
+        'SENDROTE',
+        'GETROTE',
+        'EDITROTE',
+      ]);
+      await this.apiKeySuite.testGenerateApiKeyWithInvalidPermissions();
 
       await this.apiKeySuite.testGetApiKeys();
 
       if (apiKey1?.id) {
+        await this.apiKeySuite.testUpdateApiKeyWithInvalidPermissions(apiKey1.id);
         await this.apiKeySuite.testUpdateApiKey(apiKey1.id, {
           permissions: ['SENDROTE'],
         });

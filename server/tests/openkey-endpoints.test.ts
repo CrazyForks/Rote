@@ -26,6 +26,7 @@ export class OpenKeyEndpointsTestSuite {
   private authToken: string = '';
   private createdNoteIds: string[] = [];
   private createdArticleIds: string[] = [];
+  private createdApiKeyIds: string[] = [];
 
   constructor(resultManager?: TestResultManager) {
     this.resultManager = resultManager || new TestResultManager();
@@ -81,8 +82,8 @@ export class OpenKeyEndpointsTestSuite {
           'SENDROTE',
           'GETROTE',
           'EDITROTE',
+          'DELETEROTE',
           'SENDARTICLE',
-          'ADDREACTION',
           'ADDREACTION',
           'DELETEREACTION',
           'EDITPROFILE',
@@ -97,24 +98,7 @@ export class OpenKeyEndpointsTestSuite {
           ? response.data.data[0]
           : response.data.data;
         this.openKey = keyData.id || keyData.key;
-
-        // POST ignores permissions, so we must PUT them
-        await this.authClient.put(`/api-keys/${this.openKey}`, {
-          name: 'OpenKey Endpoints Test Key',
-          permissions: [
-            'SENDROTE',
-            'GETROTE',
-            'EDITROTE',
-            'DELETEROTE', // Add DELETEROTE which might be needed
-            'SENDARTICLE',
-            'ADDREACTION',
-            'DELETEREACTION',
-            'EDITPROFILE',
-            'EDITARTICLE',
-            'UPLOADATTACHMENT',
-            'DELETEATTACHMENT',
-          ],
-        });
+        this.createdApiKeyIds.push(this.openKey);
 
         const duration = Date.now() - startTime;
         this.resultManager.recordResult(
@@ -137,6 +121,52 @@ export class OpenKeyEndpointsTestSuite {
       );
       return null;
     }
+  }
+
+  /**
+   * 创建最小权限 OpenKey（用于权限兼容测试）
+   */
+  private async createScopedOpenKey(permissions: string[], name: string): Promise<string> {
+    if (!this.authToken) {
+      throw new Error('Auth token is required to create scoped OpenKey');
+    }
+
+    const response = await this.authClient.post('/api-keys', { name, permissions });
+    TestAssertions.assertStatus(response.status, 201, `Create Scoped OpenKey: ${name}`);
+    TestAssertions.assertSuccess(response.data, `Create Scoped OpenKey: ${name}`);
+
+    const keyData = Array.isArray(response.data.data) ? response.data.data[0] : response.data.data;
+    const keyId = keyData?.id || keyData?.key;
+    TestAssertions.assertNotNull(keyId, `Scoped OpenKey ID should exist: ${name}`);
+
+    this.createdApiKeyIds.push(keyId);
+    return keyId;
+  }
+
+  /**
+   * 创建用于删除权限兼容测试的笔记
+   */
+  private async createNoteForDeletePermissionTest(label: string): Promise<string> {
+    const response = await this.openkeyClient.post('/notes', {
+      openkey: this.openKey,
+      content: `Delete permission compatibility test note (${label})`,
+      title: `Delete Perm ${label}`,
+      state: 'private',
+      type: 'rote',
+      tags: ['permission-test'],
+      pin: false,
+    });
+
+    TestAssertions.assertStatus(response.status, 201, `Create Note for ${label}`);
+    TestAssertions.assertSuccess(response.data, `Create Note for ${label}`);
+    TestAssertions.assertNotNull(
+      response.data.data?.id,
+      `Created note ID should exist for ${label}`
+    );
+
+    const noteId = response.data.data.id;
+    this.createdNoteIds.push(noteId);
+    return noteId;
   }
 
   /**
@@ -914,6 +944,126 @@ export class OpenKeyEndpointsTestSuite {
   }
 
   /**
+   * 测试 13b: 仅 DELETEROTE 权限可删除笔记
+   */
+  async test13b_DeleteNoteWithDeleteRoteOnly(): Promise<boolean> {
+    const startTime = Date.now();
+    try {
+      if (!this.authToken) {
+        const duration = Date.now() - startTime;
+        this.resultManager.recordResult(
+          'Endpoint 13b: Delete Note (DELETEROTE only)',
+          true,
+          'Skipped: auth token unavailable, cannot create scoped OpenKey',
+          duration
+        );
+        return true;
+      }
+
+      const targetNoteId = await this.createNoteForDeletePermissionTest('DELETEROTE_ONLY');
+      const deleteOnlyKey = await this.createScopedOpenKey(
+        ['DELETEROTE'],
+        'OpenKey Delete Compat - DELETEROTE only'
+      );
+
+      const deleteResponse = await this.openkeyClient.delete(
+        `/notes/${targetNoteId}?openkey=${deleteOnlyKey}`
+      );
+
+      TestAssertions.assertStatus(deleteResponse.status, 200, 'Delete Note with DELETEROTE only');
+      TestAssertions.assertSuccess(deleteResponse.data, 'Delete Note with DELETEROTE only');
+
+      const verifyResponse = await this.openkeyClient.get(
+        `/notes/${targetNoteId}?openkey=${this.openKey}`
+      );
+      if (verifyResponse.status === 200) {
+        throw new Error('Note still exists after DELETEROTE-only delete');
+      }
+
+      this.createdNoteIds = this.createdNoteIds.filter((id) => id !== targetNoteId);
+
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13b: Delete Note (DELETEROTE only)',
+        true,
+        `Deleted note ${targetNoteId} with DELETEROTE-only key`,
+        duration
+      );
+      return true;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13b: Delete Note (DELETEROTE only)',
+        false,
+        `Failed: ${error.message}`,
+        duration,
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
+   * 测试 13c: 仅 EDITROTE 权限仍可删除笔记（向后兼容）
+   */
+  async test13c_DeleteNoteWithEditRoteOnly(): Promise<boolean> {
+    const startTime = Date.now();
+    try {
+      if (!this.authToken) {
+        const duration = Date.now() - startTime;
+        this.resultManager.recordResult(
+          'Endpoint 13c: Delete Note (EDITROTE only)',
+          true,
+          'Skipped: auth token unavailable, cannot create scoped OpenKey',
+          duration
+        );
+        return true;
+      }
+
+      const targetNoteId = await this.createNoteForDeletePermissionTest('EDITROTE_ONLY');
+      const editOnlyKey = await this.createScopedOpenKey(
+        ['EDITROTE'],
+        'OpenKey Delete Compat - EDITROTE only'
+      );
+
+      const deleteResponse = await this.openkeyClient.delete(
+        `/notes/${targetNoteId}?openkey=${editOnlyKey}`
+      );
+
+      TestAssertions.assertStatus(deleteResponse.status, 200, 'Delete Note with EDITROTE only');
+      TestAssertions.assertSuccess(deleteResponse.data, 'Delete Note with EDITROTE only');
+
+      const verifyResponse = await this.openkeyClient.get(
+        `/notes/${targetNoteId}?openkey=${this.openKey}`
+      );
+      if (verifyResponse.status === 200) {
+        throw new Error('Note still exists after EDITROTE-only delete');
+      }
+
+      this.createdNoteIds = this.createdNoteIds.filter((id) => id !== targetNoteId);
+
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13c: Delete Note (EDITROTE only)',
+        true,
+        `Deleted note ${targetNoteId} with EDITROTE-only key`,
+        duration
+      );
+      return true;
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.resultManager.recordResult(
+        'Endpoint 13c: Delete Note (EDITROTE only)',
+        false,
+        `Failed: ${error.message}`,
+        duration,
+        error
+      );
+      return false;
+    }
+  }
+
+  /**
    * 测试 14: 附件管理 (POST /attachments/presign, POST /attachments/finalize, DELETE /attachments/:id)
    * Note: We expect tests to fail at finalization if using real R2 without mock setup,
    * so we will mock a "File upload disabled" response if possible, or expect a 403/500/400 validation depending on environment.
@@ -1097,8 +1247,20 @@ export class OpenKeyEndpointsTestSuite {
       }
     }
 
+    if (this.authToken && this.createdApiKeyIds.length > 0) {
+      for (const apiKeyId of this.createdApiKeyIds) {
+        try {
+          await this.authClient.delete(`/api-keys/${apiKeyId}`);
+          console.log(`   ✓ Deleted OpenKey: ${apiKeyId}`);
+        } catch {
+          console.log(`   ✗ Failed to delete OpenKey: ${apiKeyId}`);
+        }
+      }
+    }
+
     this.createdNoteIds = [];
     this.createdArticleIds = [];
+    this.createdApiKeyIds = [];
   }
 
   /**
@@ -1179,6 +1341,8 @@ export class OpenKeyEndpointsTestSuite {
 
       // Endpoint 13: Delete Note
       await this.test13_DeleteNote();
+      await this.test13b_DeleteNoteWithDeleteRoteOnly();
+      await this.test13c_DeleteNoteWithEditRoteOnly();
 
       // Endpoint 3d: Delete Article
       await this.test3d_DeleteArticle();

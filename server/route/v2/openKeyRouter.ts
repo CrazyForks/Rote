@@ -524,19 +524,25 @@ router.put('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('EDITROTE'), async (c: 
 });
 
 // Delete note using API key
-router.delete('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('EDITROTE'), async (c: HonoContext) => {
-  const openKey = c.get('openKey')!;
-  const id = c.req.param('id');
+// Keep EDITROTE for backward compatibility, but DELETEROTE is the dedicated permission.
+router.delete(
+  '/notes/:id',
+  isOpenKeyOk,
+  requireOpenKeyPerm('DELETEROTE', 'EDITROTE'),
+  async (c: HonoContext) => {
+    const openKey = c.get('openKey')!;
+    const id = c.req.param('id');
 
-  if (!id || !isValidUUID(id)) {
-    throw new Error('Invalid or missing ID');
+    if (!id || !isValidUUID(id)) {
+      throw new Error('Invalid or missing ID');
+    }
+
+    const data = await deleteRote({ id, authorid: openKey.userid });
+    await deleteRoteAttachmentsByRoteId(id, openKey.userid);
+
+    return c.json(createResponse(data), 200);
   }
-
-  const data = await deleteRote({ id, authorid: openKey.userid });
-  await deleteRoteAttachmentsByRoteId(id, openKey.userid);
-
-  return c.json(createResponse(data), 200);
-});
+);
 
 // Query current OpenKey permissions
 router.get('/permissions', isOpenKeyOk, async (c: HonoContext) => {
@@ -777,9 +783,13 @@ router.post(
       throw new Error(`Maximum ${MAX_BATCH_SIZE} attachments can be finalized at once`);
     }
 
-    // Ownership check: must start with the user's prefix
+    // Ownership check: keys must stay under the current user's prefix
     const prefix = `users/${openKey.userid}/`;
-    const invalid = attachments.find((a) => !a.originalKey?.startsWith(prefix));
+    const invalid = attachments.find(
+      (a) =>
+        !a.originalKey?.startsWith(prefix) ||
+        (a.compressedKey !== undefined && !a.compressedKey.startsWith(prefix))
+    );
     if (invalid) {
       throw new Error('Invalid object key');
     }
