@@ -56,7 +56,7 @@ export default function StorageConfigTab({
 
         // 浏览器侧 CORS 探测
         if (result.probeUrl) {
-          const corsResult = await probeCors(result.probeUrl);
+          const corsResult = await probeCors(result.probeUrl, { method: 'PUT' });
           if (corsResult.ok) {
             toast.success(t('corsSuccess'));
           } else {
