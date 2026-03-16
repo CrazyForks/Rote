@@ -1,4 +1,4 @@
-import { GetObjectCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
+import { HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { RequestChecksumCalculation } from '@aws-sdk/middleware-flexible-checksums';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { ConfigTestResult, StorageConfig } from '../types/config';
@@ -93,16 +93,17 @@ export class ConfigTester {
       // 测试存储桶访问权限
       await s3Client.send(new HeadBucketCommand({ Bucket: bucketName }));
 
-      // 生成 presigned GET URL 用于前端 CORS 探测
-      // 使用一个不存在的虚拟 key，presigned URL 本身足以触发浏览器 CORS preflight
+      // 生成 presigned PUT URL 用于前端 CORS 探测
+      // 真实直传使用 PUT，因此这里也用 PUT 来验证浏览器 preflight 是否允许 PUT + Content-Type
       const probeKey = '_rote_cors_probe';
       let probeUrl: string | undefined;
       try {
-        const getCommand = new GetObjectCommand({
+        const putCommand = new PutObjectCommand({
           Bucket: bucketName,
           Key: probeKey,
+          ContentType: 'application/octet-stream',
         });
-        probeUrl = await getSignedUrl(s3Client, getCommand, { expiresIn: 120 });
+        probeUrl = await getSignedUrl(s3Client, putCommand as any, { expiresIn: 120 });
       } catch (probeError: any) {
         // presigned URL 生成失败不影响主测试结果，仅记录警告
         console.warn('[storage-test] Failed to generate CORS probe URL:', probeError.message);

@@ -83,20 +83,45 @@ export async function testStorageConnection(
 
 /**
  * 从浏览器侧探测 CORS 是否正确配置。
- * 发送一个 GET 请求到 presigned URL，如果 CORS 未配置则浏览器 preflight 会失败。
+ * 对 presigned URL 发送请求（推荐用 PUT），以触发与真实直传一致的 preflight。
  * 返回 { ok: true } 或 { ok: false, reason: string }。
  */
-export async function probeCors(url: string): Promise<{ ok: boolean; reason?: string }> {
+export type ProbeCorsOptions = {
+  method?: 'GET' | 'PUT';
+  contentType?: string;
+  timeoutMs?: number;
+};
+
+export async function probeCors(
+  url: string,
+  opts?: ProbeCorsOptions
+): Promise<{ ok: boolean; reason?: string }> {
+  const method = opts?.method ?? 'GET';
+  const timeoutMs = opts?.timeoutMs ?? 8000;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const resp = await fetch(url, {
-      method: 'GET',
+    const init: RequestInit = {
+      method,
       mode: 'cors',
-    });
-    // 任何 HTTP 响应（包括 403/404）说明 CORS 允许了这个请求
-    // 404 是正常的因为 probe key 不存在
-    if (resp.status === 403 || resp.status === 404 || (resp.status >= 200 && resp.status < 500)) {
-      return { ok: true };
+      cache: 'no-store',
+      signal: controller.signal,
+    };
+
+    if (method === 'PUT') {
+      const contentType = opts?.contentType ?? 'application/octet-stream';
+      init.headers = {
+        'Content-Type': contentType,
+      };
+      // Force a PUT + preflight similar to real direct-upload behavior.
+      init.body = new Blob(['rote-cors-probe'], { type: contentType });
     }
+
+    const resp = await fetch(url, init);
+
+    // Any HTTP response means the browser was allowed to make the request (CORS OK).
+    // The status itself may still indicate auth/policy issues, but that's not a CORS failure.
+    if (resp.status >= 200 && resp.status < 500) return { ok: true };
     return { ok: true };
   } catch (_err: any) {
     // fetch 在 CORS 被阻止时会抛 TypeError
@@ -107,6 +132,8 @@ export async function probeCors(url: string): Promise<{ ok: boolean; reason?: st
         'Please check that your S3/R2 bucket CORS configuration allows the current origin: ' +
         window.location.origin,
     };
+  } finally {
+    window.clearTimeout(timer);
   }
 }
 

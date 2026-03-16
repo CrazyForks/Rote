@@ -103,7 +103,7 @@ export default function S3ConfigForm({
 
         // 浏览器侧 CORS 探测
         if (result.probeUrl) {
-          const corsResult = await probeCors(result.probeUrl);
+          const corsResult = await probeCors(result.probeUrl, { method: 'PUT' });
           if (corsResult.ok) {
             toast.success(t('pages.admin.storage.corsSuccess'));
           } else {
