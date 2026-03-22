@@ -14,58 +14,32 @@ jobs:
       matrix:
         include:
           - path: server
-            node-version: '1.x'  # Bun
           - path: web
-            node-version: '20.x'
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Bun
-        if: matrix.path == 'server'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Setup Node.js
-        if: matrix.path == 'web'
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-          cache-dependency-path: ${{ matrix.path }}/package-lock.json
-
       - name: Install dependencies
         working-directory: ${{ matrix.path }}
-        run: |
-          if [ "${{ matrix.path }}" == "server" ]; then
-            bun install
-          else
-            npm install
-          fi
+        run: bun install
 
       - name: Run ESLint
         working-directory: ${{ matrix.path }}
-        run: |
-          if [ "${{ matrix.path }}" == "server" ]; then
-            bun run lint
-          else
-            npm run lint
-          fi
+        run: bun run lint
 
       - name: Build
         if: matrix.path == 'web'
         working-directory: ${{ matrix.path }}
-        run: npm run build
+        run: bun run build
 
       - name: Type check
         working-directory: ${{ matrix.path }}
-        run: |
-          if [ "${{ matrix.path }}" == "server" ]; then
-            bun run build
-          else
-            npx tsc --noEmit
-          fi
+        run: bun run build
 
   server-tests:
     runs-on: ubuntu-latest
