@@ -1,6 +1,7 @@
 import type { Attachment } from '@/types/main';
 import { getAttachmentMediaKind } from '@/utils/directUpload';
 import { PhotoProvider, PhotoView } from 'react-photo-view';
+import { VideoAttachmentPreview } from './VideoAttachmentPreview';
 import 'react-photo-view/dist/react-photo-view.css';
 
 interface AttachmentsGridProps {
@@ -23,13 +24,12 @@ export default function AttachmentsGrid({ attachments, withTimeStamp }: Attachme
       <div className="my-2 flex w-fit flex-wrap gap-1 overflow-hidden rounded-2xl">
         {hasVideo ? (
           sortedAttachments.map((file, index) => (
-            <video
+            <VideoAttachmentPreview
               key={`files_${index}`}
               className="bg-foreground/3 w-full max-w-[500px] rounded-2xl border-[0.5px]"
-              src={file.url}
-              controls
-              playsInline
-              preload="metadata"
+              mediaClassName="h-full w-full object-contain"
+              playbackSrc={file.url}
+              posterSrc={file.posterUrl}
             />
           ))
         ) : (

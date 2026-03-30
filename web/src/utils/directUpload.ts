@@ -9,6 +9,7 @@ export type PresignItem = {
   uuid: string;
   original: { key: string; putUrl: string; url: string; contentType?: string };
   compressed?: { key: string; putUrl: string; url: string; contentType: 'image/webp' };
+  poster?: { key: string; putUrl: string; url: string; contentType: 'image/jpeg' };
 };
 
 export interface PresignResponse {
@@ -127,6 +128,7 @@ export type FinalizeAttachment = {
   uuid: string;
   originalKey: string;
   compressedKey?: string;
+  posterKey?: string;
   size?: number;
   mimetype?: string;
   hash?: string;
