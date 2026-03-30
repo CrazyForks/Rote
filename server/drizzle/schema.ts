@@ -215,6 +215,7 @@ export const attachments = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     url: text('url').notNull(),
     compressUrl: text('compressUrl').default(''),
+    posterUrl: text('posterUrl').default(''),
     userid: uuid('userid'),
     roteid: uuid('roteid'),
     storage: varchar('storage', { length: 100 }).notNull(),

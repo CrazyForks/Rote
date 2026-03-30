@@ -1,6 +1,7 @@
 export interface UploadResult {
   url: string | null;
   compressUrl: string | null;
+  posterUrl: string | null;
   details: {
     size: number;
     mimetype: string | null;
@@ -9,6 +10,7 @@ export interface UploadResult {
     // 对象存储中的 Key，便于删除和追踪
     key?: string;
     compressKey?: string;
+    posterKey?: string;
   };
 }
 

@@ -61,6 +61,7 @@ export type Attachment = {
   id: string;
   url: string;
   compressUrl: string;
+  posterUrl?: null | string;
   userid: string;
   roteid: string | null;
   sortIndex: number;
@@ -75,6 +76,7 @@ export type Attachment = {
     bucket?: string;
     key?: string;
     compressKey?: string;
+    posterKey?: string;
     acl?: string;
     contentType?: string;
     contentDisposition?: string | null;

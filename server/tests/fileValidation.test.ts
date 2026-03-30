@@ -104,6 +104,25 @@ describe('fileValidation', () => {
     ).not.toThrow();
   });
 
+  it('treats attachments with poster keys as videos when mimetype is missing', () => {
+    expect(
+      inferAttachmentMediaKind({
+        posterKey: 'users/test/posters/example.jpg',
+      })
+    ).toBe('video');
+
+    expect(() =>
+      validateRoteAttachmentDetails([
+        {
+          details: {
+            key: 'users/test/uploads/example.mp4',
+            posterKey: 'users/test/posters/example.jpg',
+          },
+        },
+      ])
+    ).not.toThrow();
+  });
+
   it('infers legacy attachment media kind from the stored key extension', () => {
     expect(getMediaKindFromFilename('users/test/uploads/example.mp4')).toBe('video');
     expect(getMediaKindFromFilename('users/test/uploads/example.png')).toBe('image');

@@ -33,6 +33,7 @@ export async function createAttachments(
       roteid: roteid || null,
       url: e.url,
       compressUrl: e.compressUrl || '',
+      posterUrl: e.posterUrl || '',
       details: e.details,
       storage: 'R2',
       sortIndex: roteid ? startSortIndex + index : 0,
@@ -82,6 +83,7 @@ export async function upsertAttachmentsByOriginalKey(
               roteid: roteid || null,
               url: e.url as string,
               compressUrl: e.compressUrl || '',
+              posterUrl: e.posterUrl || '',
               details: e.details,
               storage: 'R2',
               createdAt: sql`now()`,
@@ -117,6 +119,7 @@ export async function upsertAttachmentsByOriginalKey(
             .set({
               roteid: roteid ?? existing.roteid ?? null,
               compressUrl: e.compressUrl ?? existing.compressUrl ?? '',
+              posterUrl: e.posterUrl ?? existing.posterUrl ?? '',
               details: {
                 ...(existing.details as any),
                 ...(e.details as any),
@@ -136,6 +139,7 @@ export async function upsertAttachmentsByOriginalKey(
               roteid: roteid || null,
               url: e.url as string,
               compressUrl: e.compressUrl || '',
+              posterUrl: e.posterUrl || '',
               details: e.details,
               storage: 'R2',
               createdAt: sql`now()`,

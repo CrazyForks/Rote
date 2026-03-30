@@ -15,6 +15,7 @@ import { useSiteStatus } from '@/hooks/useSiteStatus';
 import { useAuthState } from '@/state/profile';
 
 import { getAttachmentMediaKind } from '@/utils/directUpload';
+import { generateVideoPoster } from '@/utils/generateVideoPoster';
 import {
   DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB,
   IMAGE_ACCEPT,
@@ -257,6 +258,7 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
           uuid: string;
           originalKey: string;
           compressedKey?: string;
+          posterKey?: string;
           size: number;
           mimetype: string;
         }> = [];
@@ -269,6 +271,8 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
             if (!file || (file as File).size === 0) {
               throw new Error('Empty file');
             }
+
+            const posterBlob = isVideoFile(file) ? await generateVideoPoster(file) : null;
 
             // 先压缩图片（如果支持）
             const compressedBlob = await maybeCompressToWebp(file, {
@@ -287,6 +291,7 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
 
             // 压缩图上传（可选，失败不影响原图）
             let compressedKey: string | undefined;
+            let posterKey: string | undefined;
             if (compressedBlob && item.compressed) {
               try {
                 await uploadToSignedUrl(item.compressed.putUrl, compressedBlob);
@@ -300,12 +305,23 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
               }
             }
 
+            if (posterBlob && item.poster) {
+              try {
+                await uploadToSignedUrl(item.poster.putUrl, posterBlob);
+                posterKey = item.poster.key;
+              } catch (error) {
+                // eslint-disable-next-line no-console
+                console.warn(`Video poster upload failed for ${item.uuid}:`, error);
+              }
+            }
+
             // 只有原图上传成功（且压缩图上传成功或不需要压缩）才添加到 toFinalize
             // 注意：这里不直接 push，而是通过返回值处理
             return {
               uuid: item.uuid,
               originalKey: item.original.key,
               compressedKey,
+              posterKey,
               size: file.size,
               mimetype: file.type,
             };

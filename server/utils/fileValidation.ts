@@ -42,6 +42,7 @@ type AttachmentLike = {
     mimetype?: string | null;
     contentType?: string | null;
     compressKey?: string | null;
+    posterKey?: string | null;
     key?: string | null;
   } | null;
 };
@@ -52,6 +53,7 @@ type UploadLike = {
   contentType?: string | null;
   compressedKey?: string | null;
   compressKey?: string | null;
+  posterKey?: string | null;
   key?: string | null;
 };
 
@@ -110,6 +112,10 @@ export function inferAttachmentMediaKind(input?: UploadLike | null): MediaKind |
   const mediaKindFromKey = getMediaKindFromFilename(input.key);
   if (mediaKindFromKey) {
     return mediaKindFromKey;
+  }
+
+  if (input.posterKey) {
+    return 'video';
   }
 
   if (input.compressedKey || input.compressKey) {

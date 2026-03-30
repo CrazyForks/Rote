@@ -1,8 +1,10 @@
 import type { Attachment } from '@/types/main';
+import { VideoAttachmentPreview } from '@/components/rote/VideoAttachmentPreview';
 import { getAttachmentMediaKind } from '@/utils/directUpload';
+import { generateVideoPoster } from '@/utils/generateVideoPoster';
 import { X } from 'lucide-react';
 import { PhotoView } from 'react-photo-view';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 interface AttachmentItemProps {
   attachment: File | Attachment;
@@ -20,6 +22,7 @@ function AttachmentItem({
   onDelete,
 }: AttachmentItemProps) {
   const mediaKind = getAttachmentMediaKind(attachment);
+  const [localPosterSrc, setLocalPosterSrc] = useState<string | null>(null);
   const objectUrl = useMemo(
     () => (attachment instanceof File ? URL.createObjectURL(attachment) : null),
     [attachment]
@@ -27,8 +30,34 @@ function AttachmentItem({
 
   useEffect(() => (objectUrl ? () => URL.revokeObjectURL(objectUrl) : undefined), [objectUrl]);
 
+  useEffect(() => {
+    if (!(attachment instanceof File) || mediaKind !== 'video') {
+      setLocalPosterSrc(null);
+      return;
+    }
+
+    let active = true;
+    let posterObjectUrl: string | null = null;
+
+    void generateVideoPoster(attachment).then((posterBlob) => {
+      if (!active || !posterBlob) return;
+      posterObjectUrl = URL.createObjectURL(posterBlob);
+      setLocalPosterSrc(posterObjectUrl);
+    });
+
+    return () => {
+      active = false;
+      if (posterObjectUrl) {
+        URL.revokeObjectURL(posterObjectUrl);
+      }
+    };
+  }, [attachment, mediaKind]);
+
   const thumbSrc =
-    objectUrl || (!(attachment instanceof File) ? attachment.compressUrl || attachment.url : '');
+    mediaKind === 'video'
+      ? localPosterSrc || (!(attachment instanceof File) ? attachment.posterUrl || '' : '')
+      : objectUrl ||
+        (!(attachment instanceof File) ? attachment.compressUrl || attachment.url : '');
   const previewSrc = objectUrl || (!(attachment instanceof File) ? attachment.url : '');
   const progressValue =
     typeof uploadProgress === 'number' ? Math.max(0, Math.min(100, uploadProgress)) : 0;
@@ -44,15 +73,13 @@ function AttachmentItem({
     >
       {mediaKind === 'video' ? (
         <>
-          <video
-            className={`h-full w-full ${isUploading ? 'object-cover opacity-55' : 'object-contain'}`}
-            src={previewSrc}
-            controls={!isUploading}
-            muted={isUploading}
-            playsInline
-            preload="metadata"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
+          <VideoAttachmentPreview
+            className="h-full w-full"
+            disabled={isUploading}
+            mediaClassName={isUploading ? 'opacity-55' : undefined}
+            playbackSrc={previewSrc}
+            posterSrc={thumbSrc}
+            stopInteractionPropagation
           />
 
           {isUploading && (
