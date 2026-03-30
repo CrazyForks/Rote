@@ -6,6 +6,7 @@ interface VideoAttachmentPreviewProps {
   className?: string;
   mediaClassName?: string;
   disabled?: boolean;
+  stopInteractionPropagation?: boolean;
 }
 
 export function VideoAttachmentPreview({
@@ -14,7 +15,14 @@ export function VideoAttachmentPreview({
   className,
   mediaClassName,
   disabled = false,
+  stopInteractionPropagation = false,
 }: VideoAttachmentPreviewProps) {
+  const stopPropagation = (event: { stopPropagation: () => void }) => {
+    if (stopInteractionPropagation) {
+      event.stopPropagation();
+    }
+  };
+
   if (!playbackSrc || disabled) {
     if (posterSrc) {
       return (
@@ -37,6 +45,8 @@ export function VideoAttachmentPreview({
         className={cn('h-full w-full bg-black object-contain', mediaClassName)}
         controls
         playsInline
+        onPointerDown={stopPropagation}
+        onClick={stopPropagation}
         poster={posterSrc || undefined}
         preload="metadata"
         src={playbackSrc}

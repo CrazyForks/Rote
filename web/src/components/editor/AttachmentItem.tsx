@@ -79,6 +79,7 @@ function AttachmentItem({
             mediaClassName={isUploading ? 'opacity-55' : undefined}
             playbackSrc={previewSrc}
             posterSrc={thumbSrc}
+            stopInteractionPropagation
           />
 
           {isUploading && (
