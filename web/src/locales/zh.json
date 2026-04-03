@@ -340,7 +340,7 @@
       "description": "实验性质小功能，有可能会让rote变得更好用🤩",
       "exportData": {
         "title": "数据导出",
-        "description": "导出完整的数据，以便在其他地方使用，json 格式。",
+        "description": "导出完整的 json 格式数据，以便在其他地方使用。",
         "noteCount": "笔记数量",
         "attachmentCount": "附件数量",
         "downloadJson": "下载 Json 格式数据",
@@ -619,7 +619,11 @@
           "moderator": "版主"
         },
         "apiRateLimit": "API 速率限制",
-        "apiRateLimitDescription": "每个用户或 IP 地址每秒允许的最大请求数。用于防止 API 滥用。最小值为 10，默认值为 100 请求/秒。"
+        "apiRateLimitDescription": "每个用户或 IP 地址每秒允许的最大请求数。用于防止 API 滥用。最小值为 10，默认值为 100 请求/秒。",
+        "allowUserVideoUpload": "向普通用户开放视频上传",
+        "allowUserVideoUploadDesc": "视频上传属于高级功能。管理员始终可用，此开关决定普通用户是否可以上传视频。",
+        "maxVideoUploadSizeMB": "视频大小上限（MB）",
+        "maxVideoUploadSizeMBDesc": "单个视频允许上传的最大大小，最小值为 1MB，默认值为 300MB。"
       },
       "security": {
         "title": "安全配置",
@@ -804,7 +808,13 @@
       },
       "error": {
         "emptyContent": "内容不能为空"
-      }
+      },
+      "videoUploadDisabled": "当前站点未向普通用户开放视频上传",
+      "mixedMediaNotAllowed": "图片和视频不能同时上传",
+      "singleVideoOnly": "一个动态最多只能上传 1 个视频",
+      "imageLimitExceeded": "最多只能上传 {{count}} 张图片",
+      "unsupportedFileType": "包含不支持的文件类型",
+      "videoTooLarge": "视频大小不能超过 {{size}}MB"
     },
     "roteItem": {
       "details": "详情",

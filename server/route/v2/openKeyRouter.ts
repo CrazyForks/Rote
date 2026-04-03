@@ -24,8 +24,10 @@ import {
   findArticleById,
   findMyRote,
   findRoteById,
+  getAttachmentDetailsByRoteId,
   getMyProfile,
   getNoteByArticleId,
+  oneUser,
   removeReaction,
   searchMyRotes,
   setNoteArticleId,
@@ -33,10 +35,16 @@ import {
   upsertAttachmentsByOriginalKey,
 } from '../../utils/dbMethods';
 import {
+  DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB,
   MAX_BATCH_SIZE,
   MAX_FILES,
+  getMediaKindFromContentType,
+  inferAttachmentMediaKind,
+  isVideoContentType,
+  mergeUniqueRoteAttachmentDetails,
   validateContentType,
   validateFileSize,
+  validateRoteAttachmentDetails,
 } from '../../utils/fileValidation';
 import { extractUrlsFromContent, parseAndStoreRoteLinkPreviews } from '../../utils/linkPreview';
 import { createResponse, isOpenKeyOk, isValidUUID } from '../../utils/main';
@@ -53,6 +61,48 @@ import {
 } from '../../utils/zod';
 
 const router = new Hono<{ Variables: HonoVariables }>();
+
+const canAlwaysUploadVideo = (role?: string | null) => role === 'admin' || role === 'super_admin';
+
+const canRegularUserUploadVideo = (uiConfig?: UiConfig | null) =>
+  uiConfig?.allowUserVideoUpload === true;
+
+const getMaxVideoUploadSizeMB = (uiConfig?: UiConfig | null) => {
+  const configured = uiConfig?.maxVideoUploadSizeMB;
+  return typeof configured === 'number' && configured > 0
+    ? configured
+    : DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB;
+};
+
+const getExt = (filename?: string, contentType?: string) => {
+  if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
+  if (!contentType) return '';
+
+  const map: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'image/heic': '.heic',
+    'image/heif': '.heif',
+    'image/avif': '.avif',
+    'image/svg+xml': '.svg',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+  };
+
+  return map[contentType] || '';
+};
+
+const extractOriginalUploadUuid = (key?: string) =>
+  key?.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/)?.[1] ?? null;
+
+const extractCompressedUuid = (key?: string) =>
+  key?.match(/\/compressed\/([^/.]+)\.webp$/)?.[1] ?? null;
+
+const extractPosterUuid = (key?: string) => key?.match(/\/posters\/([^/.]+)\.[^.]+$/)?.[1] ?? null;
 
 function requireOpenKeyPerm(...perms: string[]) {
   return async (c: HonoContext, next: () => Promise<void>) => {
@@ -696,42 +746,35 @@ router.post(
       throw new Error(`Maximum ${MAX_FILES} files allowed`);
     }
 
+    const owner = await oneUser(openKey.userid);
+    const hasVideo = files.some((f) => isVideoContentType(f.contentType));
+    if (hasVideo && !canAlwaysUploadVideo(owner?.role) && !canRegularUserUploadVideo(uiConfig)) {
+      return c.json(
+        createResponse(null, 'Video upload is currently disabled for regular users'),
+        403
+      );
+    }
+
+    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
+
     // Strict validation
     for (const f of files) {
       validateContentType(f.contentType);
-      validateFileSize(f.size);
+      if (isVideoContentType(f.contentType) && canAlwaysUploadVideo(owner?.role)) {
+        continue;
+      }
+      validateFileSize(f.size, f.contentType, maxVideoUploadSizeMB);
     }
-
-    const getExt = (filename?: string, contentType?: string) => {
-      if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
-      if (!contentType) return '';
-      const map: Record<string, string> = {
-        'image/jpeg': '.jpg',
-        'image/jpg': '.jpg',
-        'image/png': '.png',
-        'image/webp': '.webp',
-        'image/gif': '.gif',
-        'image/heic': '.heic',
-        'image/heif': '.heif',
-        'image/avif': '.avif',
-        'image/svg+xml': '.svg',
-      };
-      return map[contentType] || '';
-    };
 
     const results = await Promise.all(
       files.map(async (f) => {
         const uuid = randomUUID();
         const ext = getExt(f.filename, f.contentType);
         const originalKey = `users/${openKey.userid}/uploads/${uuid}${ext}`;
-        const compressedKey = `users/${openKey.userid}/compressed/${uuid}.webp`;
+        const mediaKind = getMediaKindFromContentType(f.contentType);
+        const original = await presignPutUrl(originalKey, f.contentType || undefined, 15 * 60);
 
-        const [original, compressed] = await Promise.all([
-          presignPutUrl(originalKey, f.contentType || undefined, 15 * 60),
-          presignPutUrl(compressedKey, 'image/webp', 15 * 60),
-        ]);
-
-        return {
+        const result: Record<string, any> = {
           uuid,
           original: {
             key: originalKey,
@@ -739,13 +782,31 @@ router.post(
             url: original.url,
             contentType: f.contentType,
           },
-          compressed: {
+        };
+
+        if (mediaKind === 'image') {
+          const compressedKey = `users/${openKey.userid}/compressed/${uuid}.webp`;
+          const compressed = await presignPutUrl(compressedKey, 'image/webp', 15 * 60);
+          result.compressed = {
             key: compressedKey,
             putUrl: compressed.putUrl,
             url: compressed.url,
             contentType: 'image/webp',
-          },
-        };
+          };
+        }
+
+        if (mediaKind === 'video') {
+          const posterKey = `users/${openKey.userid}/posters/${uuid}.jpg`;
+          const poster = await presignPutUrl(posterKey, 'image/jpeg', 15 * 60);
+          result.poster = {
+            key: posterKey,
+            putUrl: poster.putUrl,
+            url: poster.url,
+            contentType: 'image/jpeg',
+          };
+        }
+
+        return result;
       })
     );
 
@@ -761,12 +822,14 @@ router.post(
   requireStorageConfig,
   async (c: HonoContext) => {
     const openKey = c.get('openKey')!;
+    const uiConfig = await getConfig<UiConfig>('ui');
     const body = await c.req.json();
     const { attachments, noteId } = body as {
       attachments: Array<{
         uuid: string;
         originalKey: string;
         compressedKey?: string;
+        posterKey?: string;
         size?: number;
         mimetype?: string;
         hash?: string;
@@ -788,66 +851,145 @@ router.post(
     const invalid = attachments.find(
       (a) =>
         !a.originalKey?.startsWith(prefix) ||
-        (a.compressedKey !== undefined && !a.compressedKey.startsWith(prefix))
+        (a.compressedKey !== undefined && !a.compressedKey.startsWith(prefix)) ||
+        (a.posterKey !== undefined && !a.posterKey.startsWith(prefix))
     );
     if (invalid) {
       throw new Error('Invalid object key');
     }
 
+    const owner = await oneUser(openKey.userid);
+    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
+
     for (const a of attachments) {
       if (a.mimetype) {
         validateContentType(a.mimetype);
+        if (isVideoContentType(a.mimetype) && canAlwaysUploadVideo(owner?.role)) {
+          continue;
+        }
+        validateFileSize(a.size, a.mimetype, maxVideoUploadSizeMB);
       }
+    }
+
+    const hasVideo = attachments.some(
+      (a) =>
+        inferAttachmentMediaKind({
+          mimetype: a.mimetype,
+          compressedKey: a.compressedKey,
+          posterKey: a.posterKey,
+          key: a.originalKey,
+        }) === 'video'
+    );
+    if (hasVideo && !canAlwaysUploadVideo(owner?.role) && !canRegularUserUploadVideo(uiConfig)) {
+      return c.json(
+        createResponse(null, 'Video upload is currently disabled for regular users'),
+        403
+      );
     }
 
     const validationErrors: string[] = [];
     const validAttachments: typeof attachments = [];
 
     for (const a of attachments) {
+      const mediaKind = inferAttachmentMediaKind({
+        mimetype: a.mimetype,
+        compressedKey: a.compressedKey,
+        posterKey: a.posterKey,
+        key: a.originalKey,
+      });
+
+      const normalizedAttachment = { ...a };
+
       const originalExists = await checkObjectExists(a.originalKey);
       if (!originalExists) {
         validationErrors.push(`Original file not found: ${a.originalKey} (uuid: ${a.uuid})`);
         continue;
       }
 
-      if (a.compressedKey) {
-        const compressedExists = await checkObjectExists(a.compressedKey);
+      const originalUuid = extractOriginalUploadUuid(a.originalKey);
+      if (!originalUuid) {
+        validationErrors.push(
+          `Invalid original key format for uuid validation: originalKey=${a.originalKey}`
+        );
+        continue;
+      }
+
+      if (originalUuid !== a.uuid) {
+        validationErrors.push(
+          `UUID mismatch: request uuid '${a.uuid}' does not match originalKey uuid '${originalUuid}'`
+        );
+        continue;
+      }
+
+      if (mediaKind === 'video' && normalizedAttachment.compressedKey) {
+        validationErrors.push(
+          `Videos cannot include compressedKey: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        continue;
+      }
+
+      if (mediaKind === 'image' && normalizedAttachment.posterKey) {
+        validationErrors.push(
+          `Images cannot include posterKey: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        normalizedAttachment.posterKey = undefined;
+      }
+
+      if (mediaKind === 'image' && normalizedAttachment.compressedKey) {
+        const compressedExists = await checkObjectExists(normalizedAttachment.compressedKey);
         if (!compressedExists) {
-          validationErrors.push(`Compressed file not found: ${a.compressedKey} (uuid: ${a.uuid})`);
-          validAttachments.push({ ...a, compressedKey: undefined });
-          continue;
-        }
-
-        const originalUuidMatch = a.originalKey.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/);
-        const compressedUuidMatch = a.compressedKey.match(/\/compressed\/([^/.]+)\.webp$/);
-
-        if (!originalUuidMatch || !compressedUuidMatch) {
           validationErrors.push(
-            `Invalid key format for uuid validation: originalKey=${a.originalKey}, compressedKey=${a.compressedKey}`
+            `Compressed file not found: ${normalizedAttachment.compressedKey} (uuid: ${a.uuid})`
           );
-          continue;
-        }
+          normalizedAttachment.compressedKey = undefined;
+        } else {
+          const compressedUuid = extractCompressedUuid(normalizedAttachment.compressedKey);
 
-        const originalUuid = originalUuidMatch[1];
-        const compressedUuid = compressedUuidMatch[1];
-
-        if (originalUuid !== compressedUuid) {
-          validationErrors.push(
-            `UUID mismatch: originalKey contains uuid '${originalUuid}', but compressedKey contains uuid '${compressedUuid}'`
-          );
-          validAttachments.push({ ...a, compressedKey: undefined });
-          continue;
-        }
-
-        if (originalUuid !== a.uuid) {
-          validationErrors.push(
-            `UUID mismatch: request uuid '${a.uuid}' does not match originalKey uuid '${originalUuid}'`
-          );
-          continue;
+          if (!compressedUuid) {
+            validationErrors.push(
+              `Invalid key format for uuid validation: originalKey=${a.originalKey}, compressedKey=${normalizedAttachment.compressedKey}`
+            );
+            normalizedAttachment.compressedKey = undefined;
+          } else if (originalUuid !== compressedUuid) {
+            validationErrors.push(
+              `UUID mismatch: originalKey contains uuid '${originalUuid}', but compressedKey contains uuid '${compressedUuid}'`
+            );
+            normalizedAttachment.compressedKey = undefined;
+          }
         }
       }
 
-      validAttachments.push(a);
+      if (mediaKind === 'video' && normalizedAttachment.posterKey) {
+        const posterExists = await checkObjectExists(normalizedAttachment.posterKey);
+        if (!posterExists) {
+          validationErrors.push(
+            `Poster file not found: ${normalizedAttachment.posterKey} (uuid: ${a.uuid})`
+          );
+          normalizedAttachment.posterKey = undefined;
+        } else {
+          const posterUuid = extractPosterUuid(normalizedAttachment.posterKey);
+          if (!posterUuid) {
+            validationErrors.push(
+              `Invalid key format for uuid validation: originalKey=${a.originalKey}, posterKey=${normalizedAttachment.posterKey}`
+            );
+            normalizedAttachment.posterKey = undefined;
+          } else if (originalUuid !== posterUuid) {
+            validationErrors.push(
+              `UUID mismatch: originalKey contains uuid '${originalUuid}', but posterKey contains uuid '${posterUuid}'`
+            );
+            normalizedAttachment.posterKey = undefined;
+          }
+        }
+      }
+
+      if (!mediaKind) {
+        validationErrors.push(
+          `Unsupported attachment media type: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        continue;
+      }
+
+      validAttachments.push(normalizedAttachment);
     }
 
     if (validAttachments.length === 0) {
@@ -868,23 +1010,53 @@ router.post(
       );
     }
 
+    if (noteId) {
+      const currentAttachments = await getAttachmentDetailsByRoteId(noteId);
+      const pendingAttachments = validAttachments.map((a) => ({
+        details: {
+          key: a.originalKey,
+          mimetype: a.mimetype || null,
+          mediaKind: inferAttachmentMediaKind({
+            mimetype: a.mimetype || null,
+            compressedKey: a.compressedKey,
+            posterKey: a.posterKey,
+          }),
+          compressKey: a.compressedKey,
+          posterKey: a.posterKey,
+        },
+      }));
+      validateRoteAttachmentDetails(
+        mergeUniqueRoteAttachmentDetails(currentAttachments, pendingAttachments)
+      );
+    }
+
     const uploads: UploadResult[] = validAttachments.map((a) => {
       const storageConfig = getGlobalConfig<StorageConfig>('storage');
       const urlPrefix = storageConfig?.urlPrefix;
       const oUrl = `${urlPrefix}/${a.originalKey}`;
-      const cUrl = a.compressedKey ? `${urlPrefix}/${a.compressedKey}` : null;
+      const mediaKind = inferAttachmentMediaKind({
+        mimetype: a.mimetype || null,
+        compressedKey: a.compressedKey,
+        posterKey: a.posterKey,
+      });
+      const cUrl =
+        mediaKind === 'image' && a.compressedKey ? `${urlPrefix}/${a.compressedKey}` : null;
+      const pUrl = mediaKind === 'video' && a.posterKey ? `${urlPrefix}/${a.posterKey}` : null;
       const baseDetails: any = {
         size: a.size || 0,
         mimetype: a.mimetype || null,
+        mediaKind,
         mtime: new Date().toISOString(),
         key: a.originalKey,
       };
       if (a.compressedKey) baseDetails.compressKey = a.compressedKey;
+      if (a.posterKey) baseDetails.posterKey = a.posterKey;
       if (a.hash) baseDetails.hash = a.hash;
 
       return {
         url: oUrl,
         compressUrl: cUrl,
+        posterUrl: pUrl,
         details: baseDetails,
       };
     });

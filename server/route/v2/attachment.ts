@@ -10,14 +10,21 @@ import { getConfig, getGlobalConfig } from '../../utils/config';
 import {
   deleteAttachment,
   deleteAttachments,
+  getAttachmentDetailsByRoteId,
   updateAttachmentsSortOrder,
   upsertAttachmentsByOriginalKey,
 } from '../../utils/dbMethods';
 import {
+  DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB,
   MAX_BATCH_SIZE,
   MAX_FILES,
+  getMediaKindFromContentType,
+  inferAttachmentMediaKind,
+  isVideoContentType,
+  mergeUniqueRoteAttachmentDetails,
   validateContentType,
   validateFileSize,
+  validateRoteAttachmentDetails,
 } from '../../utils/fileValidation';
 import { createResponse, isValidUUID } from '../../utils/main';
 import { checkObjectExists, presignPutUrl } from '../../utils/r2';
@@ -25,6 +32,48 @@ import { AttachmentPresignZod } from '../../utils/zod';
 
 // 附件相关路由
 const attachmentsRouter = new Hono<{ Variables: HonoVariables }>();
+
+const canAlwaysUploadVideo = (role?: string | null) => role === 'admin' || role === 'super_admin';
+
+const canRegularUserUploadVideo = (uiConfig?: UiConfig | null) =>
+  uiConfig?.allowUserVideoUpload === true;
+
+const getMaxVideoUploadSizeMB = (uiConfig?: UiConfig | null) => {
+  const configured = uiConfig?.maxVideoUploadSizeMB;
+  return typeof configured === 'number' && configured > 0
+    ? configured
+    : DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB;
+};
+
+const getExt = (filename?: string, contentType?: string) => {
+  if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
+  if (!contentType) return '';
+
+  const map: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'image/heic': '.heic',
+    'image/heif': '.heif',
+    'image/avif': '.avif',
+    'image/svg+xml': '.svg',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+  };
+
+  return map[contentType] || '';
+};
+
+const extractOriginalUploadUuid = (key?: string) =>
+  key?.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/)?.[1] ?? null;
+
+const extractCompressedUuid = (key?: string) =>
+  key?.match(/\/compressed\/([^/.]+)\.webp$/)?.[1] ?? null;
+
+const extractPosterUuid = (key?: string) => key?.match(/\/posters\/([^/.]+)\.[^.]+$/)?.[1] ?? null;
 
 // 删除单个附件
 attachmentsRouter.delete('/:id', authenticateJWT, async (c: HonoContext) => {
@@ -120,46 +169,34 @@ attachmentsRouter.post(
       throw new Error(`Maximum ${MAX_FILES} files allowed`);
     }
 
-    // 严格验证每个文件的内容类型和大小
-    for (const f of files) {
-      // 验证 contentType 必须提供且符合允许的类型
-      // validateContentType 内部会检查 contentType 是否存在
-      validateContentType(f.contentType);
-
-      // 验证文件大小必须提供且不能超过限制
-      validateFileSize(f.size);
+    const hasVideo = files.some((f) => isVideoContentType(f.contentType));
+    if (hasVideo && !canAlwaysUploadVideo(user.role) && !canRegularUserUploadVideo(uiConfig)) {
+      return c.json(
+        createResponse(null, 'Video upload is currently disabled for regular users'),
+        403
+      );
     }
 
-    const getExt = (filename?: string, contentType?: string) => {
-      if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
-      if (!contentType) return '';
-      const map: Record<string, string> = {
-        'image/jpeg': '.jpg',
-        'image/jpg': '.jpg',
-        'image/png': '.png',
-        'image/webp': '.webp',
-        'image/gif': '.gif',
-        'image/heic': '.heic',
-        'image/heif': '.heif',
-        'image/avif': '.avif',
-        'image/svg+xml': '.svg',
-      };
-      return map[contentType] || '';
-    };
+    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
+
+    // 严格验证每个文件的内容类型和大小
+    for (const f of files) {
+      validateContentType(f.contentType);
+      if (isVideoContentType(f.contentType) && canAlwaysUploadVideo(user.role)) {
+        continue;
+      }
+      validateFileSize(f.size, f.contentType, maxVideoUploadSizeMB);
+    }
 
     const results = await Promise.all(
       files.map(async (f) => {
         const uuid = randomUUID();
         const ext = getExt(f.filename, f.contentType);
         const originalKey = `users/${user.id}/uploads/${uuid}${ext}`;
-        const compressedKey = `users/${user.id}/compressed/${uuid}.webp`;
+        const mediaKind = getMediaKindFromContentType(f.contentType);
+        const original = await presignPutUrl(originalKey, f.contentType || undefined, 15 * 60);
 
-        const [original, compressed] = await Promise.all([
-          presignPutUrl(originalKey, f.contentType || undefined, 15 * 60),
-          presignPutUrl(compressedKey, 'image/webp', 15 * 60),
-        ]);
-
-        return {
+        const result: Record<string, any> = {
           uuid,
           original: {
             key: originalKey,
@@ -167,13 +204,31 @@ attachmentsRouter.post(
             url: original.url,
             contentType: f.contentType,
           },
-          compressed: {
+        };
+
+        if (mediaKind === 'image') {
+          const compressedKey = `users/${user.id}/compressed/${uuid}.webp`;
+          const compressed = await presignPutUrl(compressedKey, 'image/webp', 15 * 60);
+          result.compressed = {
             key: compressedKey,
             putUrl: compressed.putUrl,
             url: compressed.url,
             contentType: 'image/webp',
-          },
-        };
+          };
+        }
+
+        if (mediaKind === 'video') {
+          const posterKey = `users/${user.id}/posters/${uuid}.jpg`;
+          const poster = await presignPutUrl(posterKey, 'image/jpeg', 15 * 60);
+          result.poster = {
+            key: posterKey,
+            putUrl: poster.putUrl,
+            url: poster.url,
+            contentType: 'image/jpeg',
+          };
+        }
+
+        return result;
       })
     );
 
@@ -188,12 +243,14 @@ attachmentsRouter.post(
   requireStorageConfig,
   async (c: HonoContext) => {
     const user = c.get('user') as User;
+    const uiConfig = await getConfig<UiConfig>('ui');
     const body = await c.req.json();
     const { attachments, noteId } = body as {
       attachments: Array<{
         uuid: string;
         originalKey: string;
         compressedKey?: string;
+        posterKey?: string;
         size?: number;
         mimetype?: string;
         hash?: string;
@@ -213,16 +270,43 @@ attachmentsRouter.post(
 
     // 简单的所有权校验：Key 必须在当前用户前缀下
     const prefix = `users/${user.id}/`;
-    const invalid = attachments.find((a) => !a.originalKey?.startsWith(prefix));
+    const invalid = attachments.find(
+      (a) =>
+        !a.originalKey?.startsWith(prefix) ||
+        (a.compressedKey !== undefined && !a.compressedKey.startsWith(prefix)) ||
+        (a.posterKey !== undefined && !a.posterKey.startsWith(prefix))
+    );
     if (invalid) {
       throw new Error('Invalid object key');
     }
+
+    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
 
     // 验证 mimetype（如果提供）
     for (const a of attachments) {
       if (a.mimetype) {
         validateContentType(a.mimetype);
+        if (isVideoContentType(a.mimetype) && canAlwaysUploadVideo(user.role)) {
+          continue;
+        }
+        validateFileSize(a.size, a.mimetype, maxVideoUploadSizeMB);
       }
+    }
+
+    const hasVideo = attachments.some(
+      (a) =>
+        inferAttachmentMediaKind({
+          mimetype: a.mimetype,
+          compressedKey: a.compressedKey,
+          posterKey: a.posterKey,
+          key: a.originalKey,
+        }) === 'video'
+    );
+    if (hasVideo && !canAlwaysUploadVideo(user.role) && !canRegularUserUploadVideo(uiConfig)) {
+      return c.json(
+        createResponse(null, 'Video upload is currently disabled for regular users'),
+        403
+      );
     }
 
     // 验证文件存在性和 UUID 一致性
@@ -230,6 +314,15 @@ attachmentsRouter.post(
     const validAttachments: typeof attachments = [];
 
     for (const a of attachments) {
+      const mediaKind = inferAttachmentMediaKind({
+        mimetype: a.mimetype,
+        compressedKey: a.compressedKey,
+        posterKey: a.posterKey,
+        key: a.originalKey,
+      });
+
+      const normalizedAttachment = { ...a };
+
       // 1. 验证原图文件是否存在
       const originalExists = await checkObjectExists(a.originalKey);
       if (!originalExists) {
@@ -237,59 +330,92 @@ attachmentsRouter.post(
         continue;
       }
 
-      // 2. 如果提供了 compressedKey，验证压缩图是否存在
-      if (a.compressedKey) {
-        const compressedExists = await checkObjectExists(a.compressedKey);
+      const originalUuid = extractOriginalUploadUuid(a.originalKey);
+      if (!originalUuid) {
+        validationErrors.push(
+          `Invalid original key format for uuid validation: originalKey=${a.originalKey}`
+        );
+        continue;
+      }
+
+      if (originalUuid !== a.uuid) {
+        validationErrors.push(
+          `UUID mismatch: request uuid '${a.uuid}' does not match originalKey uuid '${originalUuid}'`
+        );
+        continue;
+      }
+
+      // 2. 视频不接受 compressedKey
+      if (mediaKind === 'video' && normalizedAttachment.compressedKey) {
+        validationErrors.push(
+          `Videos cannot include compressedKey: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        continue;
+      }
+
+      if (mediaKind === 'image' && normalizedAttachment.posterKey) {
+        validationErrors.push(
+          `Images cannot include posterKey: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        normalizedAttachment.posterKey = undefined;
+      }
+
+      if (mediaKind === 'image' && normalizedAttachment.compressedKey) {
+        const compressedExists = await checkObjectExists(normalizedAttachment.compressedKey);
         if (!compressedExists) {
-          validationErrors.push(`Compressed file not found: ${a.compressedKey} (uuid: ${a.uuid})`);
-          // 压缩图不存在，但不阻止原图入库，只是不传递 compressedKey
-          validAttachments.push({
-            ...a,
-            compressedKey: undefined,
-          });
-          continue;
-        }
-
-        // 3. 验证 UUID 一致性：确保 compressedKey 中的 uuid 与 originalKey 中的 uuid 一致
-        // originalKey 格式: users/{userId}/uploads/{uuid}{ext}
-        // compressedKey 格式: users/{userId}/compressed/{uuid}.webp
-        // 使用更精确的正则表达式：([^/.]+) 匹配 UUID（不包含 / 和 .），然后匹配可选的扩展名
-        const originalUuidMatch = a.originalKey.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/);
-        const compressedUuidMatch = a.compressedKey.match(/\/compressed\/([^/.]+)\.webp$/);
-
-        if (!originalUuidMatch || !compressedUuidMatch) {
           validationErrors.push(
-            `Invalid key format for uuid validation: originalKey=${a.originalKey}, compressedKey=${a.compressedKey}`
+            `Compressed file not found: ${normalizedAttachment.compressedKey} (uuid: ${a.uuid})`
           );
-          continue;
-        }
+          normalizedAttachment.compressedKey = undefined;
+        } else {
+          const compressedUuid = extractCompressedUuid(normalizedAttachment.compressedKey);
 
-        const originalUuid = originalUuidMatch[1];
-        const compressedUuid = compressedUuidMatch[1];
-
-        if (originalUuid !== compressedUuid) {
-          validationErrors.push(
-            `UUID mismatch: originalKey contains uuid '${originalUuid}', but compressedKey contains uuid '${compressedUuid}'`
-          );
-          // UUID 不匹配，不传递 compressedKey
-          validAttachments.push({
-            ...a,
-            compressedKey: undefined,
-          });
-          continue;
-        }
-
-        // 4. 验证 compressedKey 中的 uuid 是否与请求中的 uuid 一致
-        if (originalUuid !== a.uuid) {
-          validationErrors.push(
-            `UUID mismatch: request uuid '${a.uuid}' does not match originalKey uuid '${originalUuid}'`
-          );
-          continue;
+          if (!compressedUuid) {
+            validationErrors.push(
+              `Invalid key format for uuid validation: originalKey=${a.originalKey}, compressedKey=${normalizedAttachment.compressedKey}`
+            );
+            normalizedAttachment.compressedKey = undefined;
+          } else if (originalUuid !== compressedUuid) {
+            validationErrors.push(
+              `UUID mismatch: originalKey contains uuid '${originalUuid}', but compressedKey contains uuid '${compressedUuid}'`
+            );
+            normalizedAttachment.compressedKey = undefined;
+          }
         }
       }
 
+      if (mediaKind === 'video' && normalizedAttachment.posterKey) {
+        const posterExists = await checkObjectExists(normalizedAttachment.posterKey);
+        if (!posterExists) {
+          validationErrors.push(
+            `Poster file not found: ${normalizedAttachment.posterKey} (uuid: ${a.uuid})`
+          );
+          normalizedAttachment.posterKey = undefined;
+        } else {
+          const posterUuid = extractPosterUuid(normalizedAttachment.posterKey);
+          if (!posterUuid) {
+            validationErrors.push(
+              `Invalid key format for uuid validation: originalKey=${a.originalKey}, posterKey=${normalizedAttachment.posterKey}`
+            );
+            normalizedAttachment.posterKey = undefined;
+          } else if (originalUuid !== posterUuid) {
+            validationErrors.push(
+              `UUID mismatch: originalKey contains uuid '${originalUuid}', but posterKey contains uuid '${posterUuid}'`
+            );
+            normalizedAttachment.posterKey = undefined;
+          }
+        }
+      }
+
+      if (!mediaKind) {
+        validationErrors.push(
+          `Unsupported attachment media type: ${a.originalKey} (uuid: ${a.uuid})`
+        );
+        continue;
+      }
+
       // 所有验证通过
-      validAttachments.push(a);
+      validAttachments.push(normalizedAttachment);
     }
 
     // 如果没有有效的附件，返回错误
@@ -313,23 +439,53 @@ attachmentsRouter.post(
       );
     }
 
+    if (noteId) {
+      const currentAttachments = await getAttachmentDetailsByRoteId(noteId);
+      const pendingAttachments = validAttachments.map((a) => ({
+        details: {
+          key: a.originalKey,
+          mimetype: a.mimetype || null,
+          mediaKind: inferAttachmentMediaKind({
+            mimetype: a.mimetype || null,
+            compressedKey: a.compressedKey,
+            posterKey: a.posterKey,
+          }),
+          compressKey: a.compressedKey,
+          posterKey: a.posterKey,
+        },
+      }));
+      validateRoteAttachmentDetails(
+        mergeUniqueRoteAttachmentDetails(currentAttachments, pendingAttachments)
+      );
+    }
+
     const uploads: UploadResult[] = validAttachments.map((a) => {
       const storageConfig = getGlobalConfig<StorageConfig>('storage');
       const urlPrefix = storageConfig?.urlPrefix;
       const oUrl = `${urlPrefix}/${a.originalKey}`;
-      const cUrl = a.compressedKey ? `${urlPrefix}/${a.compressedKey}` : null;
+      const mediaKind = inferAttachmentMediaKind({
+        mimetype: a.mimetype || null,
+        compressedKey: a.compressedKey,
+        posterKey: a.posterKey,
+      });
+      const cUrl =
+        mediaKind === 'image' && a.compressedKey ? `${urlPrefix}/${a.compressedKey}` : null;
+      const pUrl = mediaKind === 'video' && a.posterKey ? `${urlPrefix}/${a.posterKey}` : null;
       const baseDetails: any = {
         size: a.size || 0,
         mimetype: a.mimetype || null,
+        mediaKind,
         mtime: new Date().toISOString(),
         key: a.originalKey,
       };
       if (a.compressedKey) baseDetails.compressKey = a.compressedKey;
+      if (a.posterKey) baseDetails.posterKey = a.posterKey;
       if (a.hash) baseDetails.hash = a.hash;
 
       return {
         url: oUrl,
         compressUrl: cUrl,
+        posterUrl: pUrl,
         details: baseDetails,
       };
     });
