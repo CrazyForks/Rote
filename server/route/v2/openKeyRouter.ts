@@ -174,8 +174,23 @@ router.get('/articles', isOpenKeyOk, requireOpenKeyPerm('GETARTICLE'), async (c:
   const limit = c.req.query('limit');
   const keyword = c.req.query('keyword');
 
-  const parsedSkip = typeof skip === 'string' ? parseInt(skip) : undefined;
-  const parsedLimit = typeof limit === 'string' ? parseInt(limit) : undefined;
+  // Validate pagination parameters
+  let parsedSkip: number | undefined;
+  let parsedLimit: number | undefined;
+
+  if (typeof skip === 'string') {
+    parsedSkip = parseInt(skip, 10);
+    if (!Number.isFinite(parsedSkip) || parsedSkip < 0) {
+      throw new Error('Invalid skip parameter: must be a non-negative integer');
+    }
+  }
+
+  if (typeof limit === 'string') {
+    parsedLimit = parseInt(limit, 10);
+    if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+      throw new Error('Invalid limit parameter: must be a positive integer');
+    }
+  }
 
   const articles = await listMyArticles(openKey.userid, {
     skip: parsedSkip,
