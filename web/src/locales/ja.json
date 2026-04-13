@@ -836,7 +836,8 @@
       "singleVideoOnly": "1つの Rote には動画を 1 本だけアップロードできます",
       "imageLimitExceeded": "{{count}} 枚まで画像をアップロードできます",
       "unsupportedFileType": "未対応のファイル形式が含まれています",
-      "videoTooLarge": "動画サイズは {{size}}MB 以下にしてください"
+      "videoTooLarge": "動画サイズは {{size}}MB 以下にしてください",
+      "articleLinked": "記事がリンクされました"
     },
     "roteItem": {
       "details": "詳細",

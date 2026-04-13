@@ -32,17 +32,23 @@ import { Archive, BookOpen, Globe2, Globe2Icon, PinIcon, Send, X } from 'lucide-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import 'react-photo-view/dist/react-photo-view.css';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { getArticleFull } from '@/utils/articleApi';
+
 import { ArticleSelectionModal } from '../article/ArticleSelectionModal';
 import { Textarea } from '../ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 import AttachmentList from './AttachmentList';
 
+// sessionStorage key for article creation context
+export const ARTICLE_CREATION_CONTEXT_KEY = 'article-creation-context';
+
 type RoteAtomType = PrimitiveAtom<Rote>;
 
 function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?: () => void }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useTranslation('translation', {
     keyPrefix: 'components.roteInputSimple',
   });
@@ -157,6 +163,33 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
       article: null,
     }));
   }, [setRote]);
+
+  // 检测从文章创建页面返回后，自动关联新创建的文章
+  useEffect(() => {
+    const checkNewArticle = async () => {
+      try {
+        const contextStr = sessionStorage.getItem(ARTICLE_CREATION_CONTEXT_KEY);
+        if (!contextStr) return;
+
+        const context = JSON.parse(contextStr);
+        // 检查是否有新创建的文章且返回路径匹配当前路径
+        if (context.newArticleId && context.returnPath === location.pathname) {
+          // 清除上下文
+          sessionStorage.removeItem(ARTICLE_CREATION_CONTEXT_KEY);
+
+          // 获取文章详情并关联
+          const article = await getArticleFull(context.newArticleId);
+          selectArticle(article);
+          toast.success(t('articleLinked'));
+        }
+      } catch {
+        // 解析失败或获取文章失败，清除上下文
+        sessionStorage.removeItem(ARTICLE_CREATION_CONTEXT_KEY);
+      }
+    };
+
+    checkNewArticle();
+  }, [location.pathname, selectArticle, t]);
 
   // 删除附件：先本地移除（乐观），再静默调用后端删除
   const deleteFile = useCallback(
@@ -754,7 +787,12 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
         onSelect={selectArticle}
         onCreateNew={() => {
           setArticleSelectionOpen(false);
-          navigate('/article/new');
+          // 保存创建上下文，以便创建完成后自动返回并关联
+          sessionStorage.setItem(
+            ARTICLE_CREATION_CONTEXT_KEY,
+            JSON.stringify({ returnPath: location.pathname })
+          );
+          navigate('/article/new?fromRoteEditor=true');
         }}
       />
     </div>
