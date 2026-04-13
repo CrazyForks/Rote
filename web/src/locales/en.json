@@ -836,7 +836,8 @@
       "singleVideoOnly": "Only one video can be uploaded per Rote",
       "imageLimitExceeded": "You can upload up to {{count}} images",
       "unsupportedFileType": "Unsupported file type included",
-      "videoTooLarge": "Video must be {{size}}MB or smaller"
+      "videoTooLarge": "Video must be {{size}}MB or smaller",
+      "articleLinked": "Article linked"
     },
     "roteItem": {
       "details": "Details",
