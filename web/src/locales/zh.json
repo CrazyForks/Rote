@@ -826,7 +826,8 @@
       "singleVideoOnly": "一个动态最多只能上传 1 个视频",
       "imageLimitExceeded": "最多只能上传 {{count}} 张图片",
       "unsupportedFileType": "包含不支持的文件类型",
-      "videoTooLarge": "视频大小不能超过 {{size}}MB"
+      "videoTooLarge": "视频大小不能超过 {{size}}MB",
+      "articleLinked": "文章已关联"
     },
     "roteItem": {
       "details": "详情",

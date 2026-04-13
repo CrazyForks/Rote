@@ -25,9 +25,10 @@ import {
 import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
+import { ARTICLE_CREATION_CONTEXT_KEY } from '@/components/editor/RoteEditor';
 
 const CREATE_CACHE_KEY = 'article-create-cache';
 
@@ -36,6 +37,8 @@ export default function ArticleEditPage() {
   const { t: tActions } = useTranslation('translation', { keyPrefix: 'article.actions' });
   const { articleid } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromRoteEditor = searchParams.get('fromRoteEditor') === 'true';
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(!!articleid);
@@ -114,14 +117,35 @@ export default function ArticleEditPage() {
       if (isEditMode && articleid) {
         await updateArticle(articleid, { content });
         toast.success(t('updateSuccess'));
-        // Success, return to previous page
-        navigate(-1);
+        // Success, navigate to article detail page
+        navigate(`/article/${articleid}`, { replace: true });
       } else {
         const created = await createArticle({ content });
         toast.success(t('createSuccess'));
         clearCreateCache();
-        // Success, navigate to article detail or return
-        navigate(`/article/${created.id}`);
+
+        // 如果是从笔记编辑器来的，更新上下文并返回原页面
+        if (fromRoteEditor) {
+          try {
+            const contextStr = sessionStorage.getItem(ARTICLE_CREATION_CONTEXT_KEY);
+            if (contextStr) {
+              const context = JSON.parse(contextStr);
+              // 更新上下文，添加新创建的文章 ID
+              sessionStorage.setItem(
+                ARTICLE_CREATION_CONTEXT_KEY,
+                JSON.stringify({ ...context, newArticleId: created.id })
+              );
+              // 返回原页面
+              navigate(context.returnPath, { replace: true });
+              return;
+            }
+          } catch {
+            // 解析失败，走默认逻辑
+          }
+        }
+
+        // 默认：跳转到文章详情页
+        navigate(`/article/${created.id}`, { replace: true });
       }
     } catch (error: any) {
       const message =
