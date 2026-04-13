@@ -977,13 +977,13 @@ export async function getAllPublicRssData(limit = 20): Promise<{ notes: any[] }>
   }
 }
 
-// 根据文章ID查找公开且未归档的笔记（用于文章公开访问）
+// 根据文章ID查找关联的笔记（用于文章公开访问权限检查）
 export async function getNoteByArticleId(articleId: string): Promise<any> {
   try {
     if (!articleId) return null;
-    // 查找公开且未归档且 articleId 匹配的笔记
+    // 查找 articleId 匹配的笔记（不过滤归档状态，归档的公开笔记仍可访问其文章）
     const note = await db.query.rotes.findFirst({
-      where: (rotes, { eq, and }) => and(eq(rotes.articleId, articleId), eq(rotes.archived, false)),
+      where: (rotes, { eq }) => eq(rotes.articleId, articleId),
       with: {
         author: {
           columns: {
