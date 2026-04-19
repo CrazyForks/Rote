@@ -118,7 +118,9 @@
     },
     "error": {
       "pageNotFound": "Page not found or an error occurred",
-      "pageNotFoundDesc": "Sorry, we couldn't find the page you were looking for"
+      "pageNotFoundDesc": "Sorry, we couldn't find the page you were looking for",
+      "back": "Back",
+      "goHome": "Go home"
     },
     "login": {
       "authorize": {

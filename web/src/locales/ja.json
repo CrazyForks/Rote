@@ -118,7 +118,9 @@
     },
     "error": {
       "pageNotFound": "ページが見つからないか、エラーが発生しました",
-      "pageNotFoundDesc": "申し訳ございませんが、お探しのページが見つかりませんでした"
+      "pageNotFoundDesc": "申し訳ございませんが、お探しのページが見つかりませんでした",
+      "back": "戻る",
+      "goHome": "ホームへ"
     },
     "login": {
       "authorize": {

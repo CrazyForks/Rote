@@ -108,7 +108,9 @@
     },
     "error": {
       "pageNotFound": "页面未找到或发生错误",
-      "pageNotFoundDesc": "抱歉，我们无法找到您要访问的页面"
+      "pageNotFoundDesc": "抱歉，我们无法找到您要访问的页面",
+      "back": "返回",
+      "goHome": "回到首页"
     },
     "login": {
       "authorize": {
