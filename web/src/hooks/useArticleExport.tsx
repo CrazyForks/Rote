@@ -35,9 +35,14 @@ export function useArticleExport() {
     if (!content || exporting) return;
     setExporting(true);
     try {
-      const resolvedAuthor = author?.avatar
-        ? { ...author, avatar: await toDataURL(author.avatar) }
-        : author;
+      let resolvedAuthor = author;
+      if (author?.avatar) {
+        try {
+          resolvedAuthor = { ...author, avatar: await toDataURL(author.avatar) };
+        } catch {
+          resolvedAuthor = { ...author, avatar: '/DefaultAvatar.svg' };
+        }
+      }
 
       const container = document.createElement('div');
       container.style.cssText = 'position:fixed;left:-9999px;top:0;';
