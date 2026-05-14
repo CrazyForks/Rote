@@ -45,6 +45,19 @@ export default function ArticleEditPage() {
   const [isPreview, setIsPreview] = useState(false);
   const [showMarkdown, setShowMarkdown] = useState(false);
   const [, startTransition] = useTransition();
+  const [minRows, setMinRows] = useState(20);
+
+  useEffect(() => {
+    const lineHeight = 21; // font-mono text-sm ≈ 1.375 * 14px ≈ 21px
+    const overhead = 100; // NavBar + borders + safe margin
+    const update = () => {
+      const rows = Math.max(10, Math.floor((window.innerHeight - overhead) / lineHeight) - 1);
+      setMinRows(rows);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   const isEditMode = !!articleid;
 
@@ -331,13 +344,15 @@ export default function ArticleEditPage() {
 
       {!isPreview ? (
         <Textarea
-          className="flex-1 resize-none rounded-none border-none p-4 font-mono text-sm shadow-none focus-visible:ring-0"
+          className="resize-none rounded-none border-none p-4 font-mono text-sm shadow-none focus-visible:ring-0"
           value={content}
           onChange={handleContentChange}
           onPaste={handlePaste}
           onDrop={handleDrop}
           placeholder={t('contentPlaceholder')}
           disabled={loading}
+          autoFocus
+          minRows={minRows}
         />
       ) : (
         <div className="relative flex-1 overflow-auto p-4">
