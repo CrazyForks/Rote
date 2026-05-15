@@ -37,16 +37,20 @@ export default function ArticleNavBarActions({
           }}
           title={tActions('exportImage')}
         >
-          <TextInitialIcon className="size-3 group-hover:hidden" />
           {exporting ? (
-            <Loader className="size-3 animate-spin group-hover:block" />
+            <Loader className="size-3 animate-spin" />
           ) : (
-            <ImageIcon className="hidden size-3 group-hover:block" />
+            <>
+              <TextInitialIcon className="size-3 group-hover:hidden" />
+              <ImageIcon className="hidden size-3 group-hover:block" />
+            </>
           )}
-          {t('wordsCount', {
-            defaultValue: '{{count}} Words',
-            count: content.length,
-          })}
+          {exporting
+            ? tActions('exporting', { defaultValue: 'Exporting...' })
+            : t('wordsCount', {
+                defaultValue: '{{count}} Words',
+                count: content.length,
+              })}
         </div>
         <div
           className="group hidden cursor-pointer items-center gap-2 px-2 lg:flex"

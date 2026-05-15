@@ -1,0 +1,336 @@
+import { renderHook, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useArticleExport } from '../useArticleExport';
+
+// --- Helpers ---
+
+function makePNGBlob(size = 1024): Blob {
+  const header = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const body = new Uint8Array(size - 4).fill(0xff);
+  return new Blob([header, body], { type: 'image/png' });
+}
+
+// --- Shared Mocks ---
+
+const mockToBlob = vi.fn();
+const mockToastSuccess = vi.fn();
+const mockToastError = vi.fn();
+
+let cardWidth = 720;
+let cardHeight = 800;
+let mockDPR = 2;
+
+vi.mock('html-to-image', () => ({
+  toBlob: (...args: unknown[]) => mockToBlob(...args),
+}));
+
+// Mock HTMLCanvasElement for the master canvas chunking logic
+HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+  drawImage: vi.fn(),
+});
+HTMLCanvasElement.prototype.toBlob = vi.fn().mockImplementation((cb) => {
+  cb(makePNGBlob());
+});
+
+global.URL.createObjectURL = vi.fn().mockReturnValue('blob:mock');
+global.URL.revokeObjectURL = vi.fn();
+
+// Mock Image so that setting src synchronously triggers onload
+global.Image = class {
+  onload: any;
+  set src(_value: string) {
+    setTimeout(() => {
+      if (this.onload) this.onload(new Event('load'));
+    }, 0);
+  }
+} as any;
+
+vi.mock('sonner', () => ({
+  toast: {
+    success: (...args: unknown[]) => mockToastSuccess(...args),
+    error: (...args: unknown[]) => mockToastError(...args),
+  },
+}));
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: 'en' },
+  }),
+}));
+
+vi.mock('@/components/article/ExportCard', () => ({
+  default: ({ onReady }: { onReady?: () => void }) => {
+    const el = document.createElement('div');
+    el.getBoundingClientRect = () => ({
+      width: cardWidth,
+      height: cardHeight,
+      top: 0,
+      left: 0,
+      right: cardWidth,
+      bottom: cardHeight,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    });
+    // Add a fake querySelectorAll for images
+    el.querySelectorAll = (sel: string) => {
+      if (sel === 'img') return [] as any;
+      return [];
+    };
+    onReady?.();
+    return el;
+  },
+}));
+
+vi.mock('react-dom/client', () => ({
+  createRoot: (container: Element) => ({
+    render: (element: React.ReactElement) => {
+      if (element && typeof element === 'object' && 'type' in element) {
+        const type = element.type as any;
+        const props = element.props as any;
+        const result = type(props);
+        if (result instanceof HTMLElement) {
+          container.appendChild(result);
+        }
+      }
+    },
+    unmount: vi.fn(),
+  }),
+}));
+
+// --- Setup ---
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  cardWidth = 720;
+  cardHeight = 800;
+  mockDPR = 2;
+
+  Object.defineProperty(window, 'devicePixelRatio', {
+    value: mockDPR,
+    writable: true,
+    configurable: true,
+  });
+
+  mockToBlob.mockResolvedValue(makePNGBlob());
+
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    blob: vi.fn().mockResolvedValue(new Blob(['avatar'], { type: 'image/png' })),
+  });
+
+  global.FileReader = class {
+    result: string | null = null;
+    onloadend: (() => void) | null = null;
+    readAsDataURL() {
+      this.result = 'data:image/png;base64,abc';
+      this.onloadend?.();
+    }
+  } as any;
+});
+
+afterEach(() => {
+  document.body
+    .querySelectorAll('[style*="left:-9999px"], [style*="left: -9999px"]')
+    .forEach((el) => el.remove());
+});
+
+// --- Tests ---
+
+describe('useArticleExport', () => {
+  it('returns exporting=false and handleExportImage', () => {
+    const { result } = renderHook(() => useArticleExport());
+    expect(result.current.exporting).toBe(false);
+    expect(typeof result.current.handleExportImage).toBe('function');
+  });
+
+  it('does nothing with empty content', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: '' });
+    });
+    expect(mockToBlob).not.toHaveBeenCalled();
+  });
+
+  it('captures at correct scale accounting for devicePixelRatio', async () => {
+    cardWidth = 720;
+    cardHeight = 800;
+    // Area = 576000. MAX = 16777216. maxAreaScale = 5.39. maxDimScale = 8192/800 = 10.24.
+    // safeScale = 5.39. DPR = 2. Capped at 4.
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    const [, opts] = mockToBlob.mock.calls[0];
+    expect(opts.pixelRatio).toBe(4);
+  });
+
+  it('reduces scale for tall articles', async () => {
+    cardWidth = 720;
+    cardHeight = 25000;
+    // Area = 18000000. MAX = 160000000. maxAreaScale = sqrt(160M/18M) = 2.98
+    // maxDimScale = 32767/25000 = 1.31
+    // safeScale = 1.31
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    const [, opts] = mockToBlob.mock.calls[0];
+    expect(opts.pixelRatio).toBe(2.5);
+  });
+
+  it('downloads valid PNG', async () => {
+    const mockClick = vi.fn();
+    const orig = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      if (tag === 'a') {
+        const a = orig('a');
+        Object.defineProperty(a, 'click', { value: mockClick });
+        return a;
+      }
+      return orig(tag);
+    });
+
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'Art', content: 'Text' });
+    });
+
+    expect(mockClick).toHaveBeenCalled();
+    expect(mockToastSuccess).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it('cleans up DOM after export', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(document.body.querySelectorAll('[style*="left:-9999px"]')).toHaveLength(0);
+  });
+
+  it('sets exporting back to false', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(result.current.exporting).toBe(false);
+  });
+
+  it('blocks concurrent exports', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    let resolve!: () => void;
+    mockToBlob.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = () => r(makePNGBlob());
+        })
+    );
+
+    act(() => {
+      result.current.handleExportImage({ title: 'A', content: 'a' });
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    expect(result.current.exporting).toBe(true);
+
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'B', content: 'b' });
+    });
+    expect(mockToBlob).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolve();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  });
+
+  it('resolves avatar via fetch', async () => {
+    const url = 'https://example.com/avatar.jpg';
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({
+        title: 'T',
+        content: 'C',
+        author: { avatar: url },
+      });
+    });
+    expect(global.fetch).toHaveBeenCalledWith(url);
+  });
+
+  it('falls back on avatar fetch failure', async () => {
+    (global.fetch as any).mockRejectedValueOnce(new Error('net'));
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({
+        title: 'T',
+        content: 'C',
+        author: { avatar: 'https://bad.jpg' },
+      });
+    });
+    expect(mockToastSuccess).toHaveBeenCalled();
+  });
+
+  it('skips avatar when no URL', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('catches html-to-image error', async () => {
+    mockToBlob.mockRejectedValue(new Error('boom'));
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(mockToastError).toHaveBeenCalled();
+    expect(result.current.exporting).toBe(false);
+  });
+
+  it('catches toBlob returning null', async () => {
+    mockToBlob.mockResolvedValue(null);
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(mockToastError).toHaveBeenCalled();
+  });
+
+  it('catches empty blob', async () => {
+    mockToBlob.mockResolvedValue(new Blob([], { type: 'image/png' }));
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(mockToastError).toHaveBeenCalled();
+  });
+
+  it('cleans up DOM on error', async () => {
+    mockToBlob.mockRejectedValue(new Error('x'));
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: 'T', content: 'C' });
+    });
+    expect(document.body.querySelectorAll('[style*="left:-9999px"]')).toHaveLength(0);
+  });
+
+  it('handles empty title', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ title: '', content: 'C' });
+    });
+    expect(mockToBlob).toHaveBeenCalled();
+  });
+
+  it('handles undefined title', async () => {
+    const { result } = renderHook(() => useArticleExport());
+    await act(async () => {
+      await result.current.handleExportImage({ content: 'C' } as any);
+    });
+    expect(mockToBlob).toHaveBeenCalled();
+  });
+});
