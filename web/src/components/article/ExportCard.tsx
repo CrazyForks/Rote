@@ -20,6 +20,17 @@ export default function ExportCard({ title, content, author, onReady }: ExportCa
     });
   }, [onReady]);
 
+  // If the markdown content starts with an H1 that matches the title, strip it to avoid duplication
+  let displayContent = content;
+  const firstLineMatch = displayContent.match(/^\s*#\s+([^\n]+)/);
+  if (firstLineMatch) {
+    const h1Text = firstLineMatch[1].trim().toLowerCase();
+    const cleanTitle = title.trim().toLowerCase();
+    if (h1Text === cleanTitle || h1Text.includes(cleanTitle) || cleanTitle.includes(h1Text)) {
+      displayContent = displayContent.replace(/^\s*#\s+[^\n]+/, '');
+    }
+  }
+
   return (
     <div
       style={{
@@ -28,6 +39,7 @@ export default function ExportCard({ title, content, author, onReady }: ExportCa
         padding: '40px 48px',
         fontFamily: '"Noto Serif SC", "Optima-Regular", "PingFangSC-light", "Heiti SC", sans-serif',
         color: '#1a1a1a',
+        overflow: 'visible',
       }}
     >
       <h1
@@ -42,9 +54,24 @@ export default function ExportCard({ title, content, author, onReady }: ExportCa
         {title}
       </h1>
       <hr style={{ border: 'none', borderTop: '1px solid #e5e5e5', marginBottom: 24 }} />
-      <div className="prose prose-sm" style={{ maxWidth: 'none', color: '#333' }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <div className="prose" style={{ maxWidth: 'none', color: '#333', overflow: 'visible' }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
       </div>
+      <style>{`
+        .prose img {
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          max-width: 100% !important;
+          height: auto !important;
+        }
+        .prose pre {
+          border-radius: 0 !important;
+          overflow-x: visible !important;
+        }
+        .prose figure img {
+          margin: 0 !important;
+        }
+      `}</style>
       <hr
         style={{ border: 'none', borderTop: '1px solid #e5e5e5', marginTop: 32, marginBottom: 16 }}
       />
