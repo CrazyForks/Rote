@@ -13,23 +13,12 @@ interface ExportCardProps {
   onReady?: () => void;
 }
 
-export default function ExportCard({ title, content, author, onReady }: ExportCardProps) {
+export default function ExportCard({ content, author, onReady }: ExportCardProps) {
   useEffect(() => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => onReady?.());
     });
   }, [onReady]);
-
-  // If the markdown content starts with an H1 that matches the title, strip it to avoid duplication
-  let displayContent = content;
-  const firstLineMatch = displayContent.match(/^\s*#\s+([^\n]+)/);
-  if (firstLineMatch) {
-    const h1Text = firstLineMatch[1].trim().toLowerCase();
-    const cleanTitle = title.trim().toLowerCase();
-    if (h1Text === cleanTitle || h1Text.includes(cleanTitle) || cleanTitle.includes(h1Text)) {
-      displayContent = displayContent.replace(/^\s*#\s+[^\n]+/, '');
-    }
-  }
 
   return (
     <div
@@ -42,20 +31,8 @@ export default function ExportCard({ title, content, author, onReady }: ExportCa
         overflow: 'visible',
       }}
     >
-      <h1
-        style={{
-          fontSize: 28,
-          fontWeight: 700,
-          marginBottom: 24,
-          lineHeight: 1.3,
-          color: '#000',
-        }}
-      >
-        {title}
-      </h1>
-      <hr style={{ border: 'none', borderTop: '1px solid #e5e5e5', marginBottom: 24 }} />
       <div className="prose" style={{ maxWidth: 'none', color: '#333', overflow: 'visible' }}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
       <style>{`
         .prose img {
