@@ -63,11 +63,7 @@ async function getPasskeyConfig(requestOrigin?: string) {
   const frontendUrl = requestOrigin || siteConfig?.frontendUrl || 'http://localhost:3001';
   const url = new URL(frontendUrl);
 
-  // RP ID cannot be an IP address — use 'localhost' for IP-based or localhost URLs
-  let rpId = passkeyConfig?.rpId || url.hostname;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rpId) || rpId === 'localhost') {
-    rpId = 'localhost';
-  }
+  const rpId = passkeyConfig?.rpId || url.hostname;
 
   return {
     enabled: passkeyConfig?.enabled !== false,
@@ -108,7 +104,7 @@ passkeyRouter.post('/register/options', authenticateJWT, async (c: HonoContext) 
     userDisplayName: user.nickname || user.username,
     excludeCredentials,
     authenticatorSelection: {
-      residentKey: 'preferred',
+      residentKey: 'required',
       userVerification: 'preferred',
     },
   });

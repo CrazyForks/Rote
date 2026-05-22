@@ -151,8 +151,7 @@ authRouter.post('/register/passkey/options', async (c: HonoContext) => {
   const passkeyCfg = securityConfig?.passkey;
   const frontendUrl = origin || siteConfig?.frontendUrl || 'http://localhost:3001';
   const url = new URL(frontendUrl);
-  let rpId = passkeyCfg?.rpId || url.hostname;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rpId) || rpId === 'localhost') rpId = 'localhost';
+  const rpId = passkeyCfg?.rpId || url.hostname;
   const rpName = passkeyCfg?.rpName || siteConfig?.name || 'Rote';
 
   const options = await generateRegistrationOptions({
@@ -162,7 +161,7 @@ authRouter.post('/register/passkey/options', async (c: HonoContext) => {
     userDisplayName: nickname || username,
     excludeCredentials: [],
     authenticatorSelection: {
-      residentKey: 'preferred',
+      residentKey: 'required',
       userVerification: 'preferred',
     },
   });
@@ -205,8 +204,7 @@ authRouter.post('/register/passkey/verify', async (c: HonoContext) => {
   const passkeyCfg = securityConfig?.passkey;
   const frontendUrl = origin || siteConfig?.frontendUrl || 'http://localhost:3001';
   const url = new URL(frontendUrl);
-  let rpId = passkeyCfg?.rpId || url.hostname;
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rpId) || rpId === 'localhost') rpId = 'localhost';
+  const rpId = passkeyCfg?.rpId || url.hostname;
   const expectedOrigin = passkeyCfg?.origin || frontendUrl;
 
   // Verify passkey
