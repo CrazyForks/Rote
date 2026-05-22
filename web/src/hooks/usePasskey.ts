@@ -9,19 +9,39 @@ import {
 } from '@/utils/passkey';
 import { authService } from '@/utils/auth';
 
+interface PasskeyItem {
+  id: string;
+  deviceName: string;
+  credentialId: string;
+  transports: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export function usePasskey() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages' });
   const [isRegistering, setIsRegistering] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
-  const [passkeys, setPasskeys] = useState<any[]>([]);
+  const [passkeys, setPasskeys] = useState<PasskeyItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  const fetchPasskeys = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await listPasskeysUtil();
+      setPasskeys(data || []);
+    } catch (error: any) {
+      toast.error(error?.message || t('settings.passkey.fetchFailed'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [t]);
 
   const registerPasskey = useCallback(async () => {
     setIsRegistering(true);
     try {
       await registerPasskeyUtil();
       toast.success(t('login.passkey.registerSuccess'));
-      // Refresh the list
       await fetchPasskeys();
       return true;
     } catch (error: any) {
@@ -34,13 +54,12 @@ export function usePasskey() {
     } finally {
       setIsRegistering(false);
     }
-  }, []);
+  }, [t, fetchPasskeys]);
 
   const authenticateWithPasskey = useCallback(async () => {
     setIsAuthenticating(true);
     try {
       const result = await authenticateWithPasskeyUtil();
-      // Store tokens
       authService.setTokens(result.accessToken, result.refreshToken);
       toast.success(t('login.passkey.loginSuccess'));
       return result;
@@ -54,19 +73,7 @@ export function usePasskey() {
     } finally {
       setIsAuthenticating(false);
     }
-  }, []);
-
-  const fetchPasskeys = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await listPasskeysUtil();
-      setPasskeys(data || []);
-    } catch (error: any) {
-      toast.error(error?.message || t('login.passkey.loginFailed'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  }, [t]);
 
   const deletePasskey = useCallback(
     async (id: string) => {
@@ -78,7 +85,7 @@ export function usePasskey() {
         toast.error(error?.message || t('profile.settings.passkey.deleteFailed'));
       }
     },
-    [fetchPasskeys]
+    [t, fetchPasskeys]
   );
 
   return {

@@ -259,7 +259,6 @@ function Login() {
           navigate('/home');
         })
         .catch((err: any) => {
-          setDisbled(false);
           if (err?.name === 'NotAllowedError') {
             toast.info(t('passkey.cancelled'));
           } else {

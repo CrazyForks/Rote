@@ -19,13 +19,13 @@ export async function registerWithPasskey(data: {
   const { options, registrationToken } = optionsRes.data;
 
   // Step 2: browser WebAuthn ceremony
-  const credential = await startRegistration(options);
+  const credential = await startRegistration({ optionsJSON: options });
 
   // Step 3: verify passkey + create account atomically
   const verifyRes = await post('/auth/register/passkey/verify', {
     credential,
     registrationToken,
-    deviceType: getDeviceType(),
+    deviceName: getDeviceName(),
   });
 
   return verifyRes.data;
@@ -35,11 +35,11 @@ export async function registerPasskey(): Promise<boolean> {
   const res = await post('/auth/passkey/register/options', {});
   const { options } = res.data;
 
-  const credential = await startRegistration(options);
+  const credential = await startRegistration({ optionsJSON: options });
 
   await post('/auth/passkey/register/verify', {
     credential,
-    deviceType: getDeviceType(),
+    deviceName: getDeviceName(),
   });
 
   return true;
@@ -55,7 +55,7 @@ export async function authenticateWithPasskey(): Promise<{
   const { options, challengeKey } = res.data;
 
   // Trigger browser WebAuthn UI
-  const credential = await startAuthentication(options);
+  const credential = await startAuthentication({ optionsJSON: options });
 
   // Verify with backend and get tokens
   const verifyRes = await post('/auth/passkey/authenticate/verify', {
@@ -76,7 +76,7 @@ export async function deletePasskey(id: string) {
   return res.data;
 }
 
-function getDeviceType(): string {
+function getDeviceName(): string {
   const ua = navigator.userAgent;
   if (/iPhone/.test(ua)) return 'iPhone';
   if (/iPad/.test(ua)) return 'iPad';

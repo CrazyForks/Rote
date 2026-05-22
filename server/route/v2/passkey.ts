@@ -123,9 +123,9 @@ passkeyRouter.post('/register/options', authenticateJWT, async (c: HonoContext) 
 passkeyRouter.post('/register/verify', authenticateJWT, async (c: HonoContext) => {
   const user = c.get('user') as User;
   const body = await c.req.json();
-  const { credential, deviceType } = body as {
+  const { credential, deviceName } = body as {
     credential: RegistrationResponseJSON;
-    deviceType?: string;
+    deviceName?: string;
   };
 
   const origin = c.req.header('origin');
@@ -155,7 +155,7 @@ passkeyRouter.post('/register/verify', authenticateJWT, async (c: HonoContext) =
     publicKey: Buffer.from(regCredential.publicKey),
     counter: regCredential.counter,
     transports: credential.response?.transports as string[] | undefined,
-    deviceType: deviceType || '',
+    deviceName: deviceName || '',
   });
 
   return c.json(createResponse(null, 'Passkey registered successfully'), 200);
@@ -271,7 +271,7 @@ passkeyRouter.delete('/:id', authenticateJWT, async (c: HonoContext) => {
     return c.json(
       createResponse(
         null,
-        'Cannot delete: this is your last login method. Please set up a password or another login method first.',
+        'Cannot delete passkey: it is your only login method. Add a password or another passkey first.',
         400
       ),
       400

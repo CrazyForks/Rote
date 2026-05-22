@@ -194,7 +194,7 @@
         "registerSuccess": "パスキーの登録に成功しました",
         "registerFailed": "パスキーの登録に失敗しました",
         "cancelled": "操作がキャンセルされました",
-        "passwordOptionalHint": "パスワードをスキップして、パスキーでログインできます。"
+        "passwordOptionalHint": "パスワードをスキップして、パスキーで登録できます。"
       }
     },
     "home": {
@@ -251,7 +251,8 @@
           "add": "パスキーを追加",
           "adding": "パスキーを追加中...",
           "deleteSuccess": "パスキーを削除しました",
-          "deleteFailed": "パスキーの削除に失敗しました"
+          "deleteFailed": "パスキーの削除に失敗しました",
+          "fetchFailed": "パスキーの読み込みに失敗しました"
         },
         "oauth": {
           "title": "アカウント連携",

@@ -5,12 +5,15 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import { Hono } from 'hono';
+import { eq, or } from 'drizzle-orm';
+import { users, userPasskeys } from '../../drizzle/schema';
 import type { User } from '../../drizzle/schema';
 import { requireSecurityConfig } from '../../middleware/configCheck';
 import { authenticateJWT } from '../../middleware/jwtAuth';
 import type { SecurityConfig, SiteConfig, UiConfig } from '../../types/config';
 import type { HonoContext, HonoVariables } from '../../types/hono';
 import { getConfig, getGlobalConfig } from '../../utils/config';
+import db from '../../utils/drizzle';
 import { changeUserPassword, createUser, oneUser, passportCheckUser } from '../../utils/dbMethods';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../../utils/jwt';
 import { createResponse, sanitizeUserData } from '../../utils/main';
@@ -20,12 +23,19 @@ import { passwordChangeZod, RegisterDataZod } from '../../utils/zod';
 const authRouter = new Hono<{ Variables: HonoVariables }>();
 
 // 无密码注册 - 临时存储 (registrationToken → { userData, challenge, expiresAt })
-const pendingRegistrations = new Map<
-  string,
-  { userData: any; challenge: string; expiresAt: number }
->();
+interface PendingRegistration {
+  userData: { username: string; email: string; nickname: string; tempUserId: string };
+  challenge: string;
+  expiresAt: number;
+}
 
-function storePendingRegistration(token: string, userData: any, challenge: string) {
+const pendingRegistrations = new Map<string, PendingRegistration>();
+
+function storePendingRegistration(
+  token: string,
+  userData: PendingRegistration['userData'],
+  challenge: string
+) {
   if (pendingRegistrations.size > 500) {
     const now = Date.now();
     for (const [k, v] of pendingRegistrations) {
@@ -123,9 +133,6 @@ authRouter.post('/register/passkey/options', async (c: HonoContext) => {
   RegisterDataZod.parse({ username, email, nickname, password: undefined });
 
   // Check username/email uniqueness early
-  const { users } = await import('../../drizzle/schema');
-  const db = (await import('../../utils/drizzle')).default;
-  const { eq, or } = await import('drizzle-orm');
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -180,10 +187,10 @@ authRouter.post('/register/passkey/options', async (c: HonoContext) => {
 // 无密码注册 - Step 2: 验证 passkey，创建账号
 authRouter.post('/register/passkey/verify', async (c: HonoContext) => {
   const body = await c.req.json();
-  const { credential, registrationToken, deviceType } = body as {
+  const { credential, registrationToken, deviceName } = body as {
     credential: RegistrationResponseJSON;
     registrationToken: string;
-    deviceType?: string;
+    deviceName?: string;
   };
 
   const pending = getAndDeletePendingRegistration(registrationToken);
@@ -218,8 +225,6 @@ authRouter.post('/register/passkey/verify', async (c: HonoContext) => {
   const { userData } = pending;
 
   // Create user + passkey atomically in a transaction
-  const db = (await import('../../utils/drizzle')).default;
-  const { users, userPasskeys } = await import('../../drizzle/schema');
   const { defaultUserRole } = (await getConfig<UiConfig>('ui')) || {};
 
   const result = await db.transaction(async (tx) => {
@@ -251,7 +256,7 @@ authRouter.post('/register/passkey/verify', async (c: HonoContext) => {
         publicKey: Buffer.from(regCredential.publicKey),
         counter: regCredential.counter,
         transports: credential.response?.transports as string[] | undefined,
-        deviceType: deviceType || '',
+        deviceName: deviceName || '',
       })
       .returning();
 

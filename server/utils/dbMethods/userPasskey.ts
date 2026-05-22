@@ -1,5 +1,5 @@
 import { and, count, eq } from 'drizzle-orm';
-import { userOAuthBindings, userPasskeys } from '../../drizzle/schema';
+import { users, userOAuthBindings, userPasskeys } from '../../drizzle/schema';
 import db from '../drizzle';
 import { DatabaseError } from './common';
 
@@ -9,7 +9,7 @@ export async function createUserPasskey(data: {
   publicKey: Buffer;
   counter: number;
   transports?: string[];
-  deviceType?: string;
+  deviceName?: string;
 }) {
   try {
     const [passkey] = await db
@@ -20,7 +20,7 @@ export async function createUserPasskey(data: {
         publicKey: data.publicKey,
         counter: data.counter,
         transports: data.transports || [],
-        deviceType: data.deviceType || '',
+        deviceName: data.deviceName || '',
       })
       .returning();
     return passkey;
@@ -34,7 +34,7 @@ export async function getUserPasskeys(userId: string) {
     return await db
       .select({
         id: userPasskeys.id,
-        deviceType: userPasskeys.deviceType,
+        deviceName: userPasskeys.deviceName,
         credentialId: userPasskeys.credentialId,
         transports: userPasskeys.transports,
         createdAt: userPasskeys.createdAt,
@@ -101,7 +101,6 @@ export async function getUserPasskeyCount(userId: string): Promise<number> {
 
 export async function hasOtherLoginMethods(userId: string): Promise<boolean> {
   try {
-    const { users } = await import('../../drizzle/schema');
     const [fullUser] = await db
       .select({ passwordhash: users.passwordhash, salt: users.salt })
       .from(users)

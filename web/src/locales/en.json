@@ -194,7 +194,7 @@
         "registerSuccess": "Passkey registered successfully",
         "registerFailed": "Passkey registration failed",
         "cancelled": "Operation cancelled",
-        "passwordOptionalHint": "You can skip the password and use passkey to log in."
+        "passwordOptionalHint": "You can skip the password and register with a passkey."
       }
     },
     "home": {
@@ -251,7 +251,8 @@
           "add": "Add Passkey",
           "adding": "Adding passkey...",
           "deleteSuccess": "Passkey deleted",
-          "deleteFailed": "Failed to delete passkey"
+          "deleteFailed": "Failed to delete passkey",
+          "fetchFailed": "Failed to load passkeys"
         },
         "oauth": {
           "title": "Account Linking",

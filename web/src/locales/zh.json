@@ -184,7 +184,7 @@
         "registerSuccess": "通行密钥注册成功",
         "registerFailed": "通行密钥注册失败",
         "cancelled": "操作已取消",
-        "passwordOptionalHint": "可以跳过密码设置，使用通行密钥登录。"
+        "passwordOptionalHint": "可以跳过密码设置，使用通行密钥注册。"
       }
     },
     "home": {
@@ -241,7 +241,8 @@
           "add": "添加通行密钥",
           "adding": "正在添加通行密钥...",
           "deleteSuccess": "通行密钥已删除",
-          "deleteFailed": "删除通行密钥失败"
+          "deleteFailed": "删除通行密钥失败",
+          "fetchFailed": "加载通行密钥失败"
         },
         "oauth": {
           "title": "账户关联",

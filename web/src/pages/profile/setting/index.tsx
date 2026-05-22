@@ -339,7 +339,7 @@ export default function SettingsPage() {
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <Fingerprint className="size-5 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold">{pk.deviceType || 'Unknown'}</div>
+                      <div className="text-sm font-semibold">{pk.deviceName || 'Unknown'}</div>
                       <div className="text-muted-foreground text-xs">
                         {new Date(pk.createdAt).toLocaleDateString()}
                       </div>
