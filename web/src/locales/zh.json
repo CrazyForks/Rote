@@ -255,7 +255,6 @@
           "clear": "清除密码",
           "clearWarning": "清除密码后，您将无法使用账号密码登录。请确保您已绑定至少一个第三方账号或注册了通行密钥。",
           "clearConfirmTitle": "确认清除密码",
-          "clearConfirmDesc": "清除密码前，请输入当前密码以确认身份。清除后，您必须通过已绑定的 GitHub/Apple 或通行密钥登录。",
           "passwordLabel": "当前密码",
           "passwordPlaceholder": "请输入当前密码",
           "newPasswordLabel": "新密码",

@@ -265,7 +265,6 @@
           "clear": "Clear Password",
           "clearWarning": "After clearing your password, you will not be able to log in with a username and password. Make sure you have linked at least one social account or registered a passkey first.",
           "clearConfirmTitle": "Confirm Clearing Password",
-          "clearConfirmDesc": "Before clearing your password, enter your current password to confirm your identity. Afterwards, you must log in using your linked GitHub/Apple account or a passkey.",
           "passwordLabel": "Current Password",
           "passwordPlaceholder": "Enter current password",
           "newPasswordLabel": "New Password",

@@ -30,7 +30,6 @@ import {
   Stars,
   Trash2,
   KeyRound,
-  ShieldAlert,
   RefreshCw,
   RotateCcw,
   Key,
@@ -467,7 +466,6 @@ export default function SettingsPage() {
           passkeys.length === 0 &&
           profile?.hasPassword && (
             <div className="text-destructive bg-destructive/5 border-destructive/20 flex items-start gap-2 rounded-lg border p-3 text-xs leading-relaxed">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0" />
               <span>{t('settings.password.clearWarning')}</span>
             </div>
           )}

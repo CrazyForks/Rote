@@ -86,7 +86,6 @@ export function ChangePasswordDialog({
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t('passwordLabel')}</label>
             <Input
               type="password"
               placeholder={t('passwordPlaceholder')}
