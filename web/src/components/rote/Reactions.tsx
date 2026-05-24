@@ -212,11 +212,16 @@ export function ReactionsPart({ rote, mutate, mutateSingle }: ReactionsPartProps
       <div className="flex flex-wrap items-center gap-2">
         {Object.entries(groupedReactions).map(([type, reactionGroup]) => {
           const hasUserReactions = reactionGroup.some((r) => r.user);
+          const isCustomReaction = !preReactions.includes(type);
+          const firstUser = isCustomReaction ? reactionGroup.find((r) => r.user)?.user : null;
+
           const ReactionButton = (
             <div
               className={`flex h-6 ${
                 isLoading ? 'cursor-not-allowed' : 'cursor-pointer'
-              } items-center gap-2 rounded-full px-2 pr-3 text-xs duration-300 ${
+              } items-center gap-1.5 rounded-full ${
+                firstUser ? 'pr-2.5 pl-1' : 'px-2 pr-3'
+              } text-xs duration-300 ${
                 (
                   isAuthenticated
                     ? rote.reactions.some((r) => r.type === type && r.userid === profile?.id)
@@ -227,6 +232,21 @@ export function ReactionsPart({ rote, mutate, mutateSingle }: ReactionsPartProps
               }`}
               onClick={() => (isLoading ? undefined : handleReactionClick(type))}
             >
+              {firstUser && (
+                <Link
+                  to={`/${firstUser.username}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110"
+                  title={firstUser.nickname || firstUser.username}
+                >
+                  <Avatar className="size-4">
+                    <AvatarImage src={firstUser.avatar || undefined} />
+                    <AvatarFallback className="text-[8px]">
+                      {firstUser.nickname?.[0] || firstUser.username[0]}
+                    </AvatarFallback>
+                  </Avatar>
+                </Link>
+              )}
               <span>{type}</span>
               <SlidingNumber className="text-xs" number={reactionGroup.length} />
             </div>
