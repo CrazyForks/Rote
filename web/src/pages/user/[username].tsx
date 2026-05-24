@@ -1,4 +1,5 @@
 import defaultCover from '@/assets/img/defaultCover.png';
+import { AppleIcon } from '@/components/icons/Apple';
 import { VerifiedIcon } from '@/components/icons/Verified';
 import NavBar from '@/components/layout/navBar';
 import LoadingPlaceholder from '@/components/others/LoadingPlaceholder';
@@ -87,22 +88,33 @@ function UserPage() {
   };
 
   const SideBar = () => (
-    <div className="grid grid-cols-3 divide-x border-b">
+    <div className="flex flex-col divide-y border-b">
+      <div className="grid grid-cols-3 divide-x">
+        <a
+          href={`${API_URL}/rss/${username}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="bg-foreground/3 flex cursor-pointer items-center justify-center gap-2 py-4"
+        >
+          <Rss className="size-5" />
+          <div className="text-xl">RSS</div>
+        </a>
+        <div className="flex items-center justify-center gap-2 py-4">
+          <div className="text-xl">☝️</div>
+        </div>
+        <div className="flex items-center justify-center gap-2 py-4">
+          <div className="text-xl">🤓</div>
+        </div>
+      </div>
       <a
-        href={`${API_URL}/rss/${username}`}
+        href="https://apps.apple.com/app/rote/id6755513897"
         target="_blank"
         rel="noopener noreferrer"
-        className="bg-foreground/3 flex cursor-pointer items-center justify-center gap-2 py-4"
+        className="hover:bg-foreground/5 flex cursor-pointer items-center justify-center gap-2 py-4 duration-200"
       >
-        <Rss className="size-5" />
-        <div className="text-xl">RSS</div>
+        <AppleIcon className="size-5" />
+        <div className="text-xl">{t('downloadApp')}</div>
       </a>
-      <div className="flex items-center justify-center gap-2 py-4">
-        <div className="text-xl">☝️</div>
-      </div>
-      <div className="flex items-center justify-center gap-2 py-4">
-        <div className="text-xl">🤓</div>
-      </div>
     </div>
   );
 
