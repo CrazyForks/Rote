@@ -5,6 +5,7 @@ import {
   documentEmbeddings,
   embeddingJobs,
   rotes,
+  users,
   type EmbeddingJob,
 } from '../../drizzle/schema';
 import type { AiConfig, SecurityConfig } from '../../types/config';
@@ -12,6 +13,7 @@ import {
   createChatCompletion,
   createEmbedding,
   vectorToLiteral,
+  type ChatCompletionUsage,
   type ChatMessage,
 } from '../ai/client';
 import { DEFAULT_AI_CONFIG, mergeAiConfig } from '../ai/providers';
@@ -23,6 +25,7 @@ import {
 } from '../ai/retrievalPlan';
 import { getConfig, getGlobalConfig, setConfig } from '../config';
 import db from '../drizzle';
+import { logAiTokenUsage } from './aiToken';
 import { DatabaseError } from './common';
 
 export type AiSourceType = 'rote' | 'article';
@@ -68,6 +71,15 @@ function shouldAutoIndex(config = getRuntimeAiConfig()): boolean {
   return isVectorUsable(config) && config.autoIndexEnabled === true;
 }
 
+export async function isAiEligibleUser(userId: string): Promise<boolean> {
+  const [user] = await db
+    .select({ emailVerified: users.emailVerified })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return user?.emailVerified === true;
+}
+
 function hashText(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -94,6 +106,21 @@ function buildTextArraySql(values: string[]) {
 
 function vectorIndexName(dimensions: number): string {
   return `document_embeddings_embedding_hnsw_${dimensions}_idx`;
+}
+
+async function logChatTokenUsage(
+  ownerId: string,
+  model: string,
+  usage: ChatCompletionUsage
+): Promise<void> {
+  await logAiTokenUsage({
+    userid: ownerId,
+    model,
+    type: 'chat',
+    promptTokens: usage.prompt_tokens,
+    completionTokens: usage.completion_tokens,
+    totalTokens: usage.total_tokens,
+  });
 }
 
 function splitIntoChunks(text: string, chunkSize: number, overlap: number): string[] {
@@ -291,6 +318,11 @@ export async function enqueueEmbeddingJob(
   try {
     if (!VALID_SOURCE_TYPES.has(sourceType)) return;
 
+    if (action !== 'delete' && !(await isAiEligibleUser(ownerId))) {
+      await deleteEmbeddingsForSource(sourceType, sourceId);
+      return;
+    }
+
     if (!force && action !== 'delete' && !shouldAutoIndex()) {
       return;
     }
@@ -342,6 +374,15 @@ export async function deleteEmbeddingsForSource(
   }
 }
 
+export async function deleteEmbeddingsForOwner(ownerId: string): Promise<void> {
+  try {
+    await db.delete(documentEmbeddings).where(eq(documentEmbeddings.ownerId, ownerId));
+    await db.delete(embeddingJobs).where(eq(embeddingJobs.ownerId, ownerId));
+  } catch (error: any) {
+    throw new DatabaseError('Failed to delete user document embeddings', error);
+  }
+}
+
 export async function enqueueBackfillEmbeddingJobs(): Promise<{ queued: number }> {
   try {
     const config = await getStoredAiConfig();
@@ -350,10 +391,16 @@ export async function enqueueBackfillEmbeddingJobs(): Promise<{ queued: number }
     }
 
     let queued = 0;
-    const roteRows = await db.select({ id: rotes.id, ownerId: rotes.authorid }).from(rotes);
+    const roteRows = await db
+      .select({ id: rotes.id, ownerId: rotes.authorid })
+      .from(rotes)
+      .innerJoin(users, eq(rotes.authorid, users.id))
+      .where(eq(users.emailVerified, true));
     const articleRows = await db
       .select({ id: articles.id, ownerId: articles.authorId })
-      .from(articles);
+      .from(articles)
+      .innerJoin(users, eq(articles.authorId, users.id))
+      .where(eq(users.emailVerified, true));
 
     for (const row of roteRows) {
       const source = await getSourceDocument('rote', row.id);
@@ -428,6 +475,11 @@ async function processJob(job: EmbeddingJob, config: AiConfig): Promise<void> {
   }
 
   const ownerId = getSourceOwner(sourceType, source);
+  if (!(await isAiEligibleUser(ownerId))) {
+    await deleteEmbeddingsForSource(sourceType, job.sourceId);
+    return;
+  }
+
   const document = buildSourceDocument(sourceType, source);
   const chunks = splitIntoChunks(
     document.text,
@@ -441,7 +493,19 @@ async function processJob(job: EmbeddingJob, config: AiConfig): Promise<void> {
   const expectedDimensions = normalizeEmbeddingDimensions(config.embedding.dimensions);
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
-    const embedding = await createEmbedding(config.embedding, chunk);
+    const { embedding, usage } = await createEmbedding(config.embedding, chunk);
+
+    if (usage) {
+      // Background log
+      logAiTokenUsage({
+        userid: ownerId,
+        model: config.embedding.model,
+        type: 'embedding',
+        promptTokens: usage.prompt_tokens,
+        completionTokens: 0,
+        totalTokens: usage.total_tokens,
+      });
+    }
     if (embedding.length !== expectedDimensions) {
       throw new Error(
         `Embedding dimensions mismatch: expected ${expectedDimensions}, got ${embedding.length}`
@@ -559,7 +623,17 @@ export async function semanticSearch(params: {
   const dimensions = normalizeEmbeddingDimensions(config.embedding.dimensions);
   const limit = normalizeLimit(params.limit);
   const queryText = [params.query, ...(params.semanticScope || [])].filter(Boolean).join('\n');
-  const queryEmbedding = await createEmbedding(config.embedding, queryText);
+  const { embedding: queryEmbedding, usage } = await createEmbedding(config.embedding, queryText);
+  if (usage && params.ownerId) {
+    logAiTokenUsage({
+      userid: params.ownerId,
+      model: config.embedding.model,
+      type: 'embedding',
+      promptTokens: usage.prompt_tokens,
+      completionTokens: 0,
+      totalTokens: usage.total_tokens,
+    });
+  }
   if (queryEmbedding.length !== dimensions) {
     throw new Error(
       `Embedding dimensions mismatch: expected ${dimensions}, got ${queryEmbedding.length}`
@@ -742,7 +816,12 @@ export async function chatWithRoteContext(params: {
       clarification: { question, pendingPlan: plan },
     };
   }
-  const answer = await createChatCompletion(config.chat, messages);
+  const { content: answer, usage } = await createChatCompletion(config.chat, messages);
+
+  if (usage) {
+    await logChatTokenUsage(params.ownerId, config.chat.model, usage);
+  }
+
   return { answer, sources, plan };
 }
 
@@ -775,6 +854,7 @@ export async function prepareRoteChatContext(params: {
     clarificationAnswer: params.clarificationAnswer,
     history: params.history,
     onThinkingDelta: params.onPlanThinkingDelta,
+    onUsage: (usage) => logChatTokenUsage(params.ownerId, config.chat.model, usage),
   });
 
   if (params.onPlanGenerated) {
