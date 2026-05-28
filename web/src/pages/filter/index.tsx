@@ -140,6 +140,16 @@ function MineFilter() {
         scope: 'mine',
         sourceTypes: ['rote'],
         limit: 50,
+        tags:
+          filter.tags.hasEvery.length > 0
+            ? { include: filter.tags.hasEvery, match: 'all' }
+            : undefined,
+        timeRange: filter.date
+          ? {
+              from: `${filter.date}T00:00:00.000Z`,
+              to: `${filter.date}T23:59:59.999Z`,
+            }
+          : undefined,
       });
       const filteredResults = results.filter((result) => {
         const tags = Array.isArray(result.metadata?.tags) ? result.metadata.tags : [];

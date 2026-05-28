@@ -8,7 +8,7 @@ import {
   testChatProvider,
   testEmbeddingProvider,
 } from '../../utils/ai/client';
-import { AI_PROVIDER_PRESETS, mergeAiConfig } from '../../utils/ai/providers';
+import { AI_PROVIDER_PRESETS, resolveIncomingAiConfig } from '../../utils/ai/providers';
 import {
   type AiSourceType,
   chatWithRoteContext,
@@ -64,7 +64,7 @@ aiRouter.post('/test', authenticateJWT, requireAdmin, bodyTypeCheck, async (c: H
   const body = await c.req.json();
   const target = body?.target as 'chat' | 'embedding';
   const storedConfig = await getStoredAiConfig();
-  const config = mergeAiConfig(body?.config || storedConfig);
+  const config = body?.config ? resolveIncomingAiConfig(body.config, storedConfig) : storedConfig;
 
   if (target === 'chat') {
     await testChatProvider(config.chat);

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import {
   articles,
   documentEmbeddings,
@@ -302,7 +302,7 @@ export async function enqueueEmbeddingJob(
         and(
           eq(embeddingJobs.sourceType, sourceType),
           eq(embeddingJobs.sourceId, sourceId),
-          inArray(embeddingJobs.status, ['pending', 'running'])
+          eq(embeddingJobs.status, 'pending')
         )
       )
       .limit(1);
