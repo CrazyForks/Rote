@@ -98,7 +98,7 @@ export function AiMessageItem({
           </div>
         )}
         {!message.error && message.metrics && !message.isStreaming && (
-          <div className="text-muted-foreground flex flex-wrap items-center gap-3 font-mono text-[10px]">
+          <div className="text-muted-foreground flex flex-wrap items-center gap-2 font-mono text-[10px]">
             {message.metrics.planTime && (
               <span>Plan: {(message.metrics.planTime / 1000).toFixed(2)}s</span>
             )}
