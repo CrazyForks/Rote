@@ -79,16 +79,25 @@ function buildChatRequestBody(
   };
 }
 
-export async function createEmbedding(config: AiProviderConfig, input: string): Promise<number[]> {
+export async function createEmbedding(
+  config: AiProviderConfig & { dimensions?: number },
+  input: string
+): Promise<number[]> {
   ensureProviderConfig(config);
+
+  const payload: any = {
+    model: config.model,
+    input: input.replace(/\s+/g, ' ').trim(),
+  };
+
+  if (config.dimensions && config.dimensions > 0) {
+    payload.dimensions = config.dimensions;
+  }
 
   const response = await fetch(`${normalizeBaseUrl(config.baseUrl)}/embeddings`, {
     method: 'POST',
     headers: buildHeaders(config),
-    body: JSON.stringify({
-      model: config.model,
-      input: input.replace(/\s+/g, ' ').trim(),
-    }),
+    body: JSON.stringify(payload),
   });
   const body = await readJsonResponse(response);
   const embedding = body?.data?.[0]?.embedding;
