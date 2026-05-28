@@ -65,6 +65,7 @@ iOS App 支持连接到你自部署的后端。
 - [自托管部署指南](https://rote.ink/doc/selfhosted) - 完整的部署和配置说明
 - [API 文档](doc/userguide/API-ENDPOINTS.md) - API 接口使用指南
 - [API Key 指南](doc/userguide/API-KEY-GUIDE.md) - 如何使用 API Key
+- [AI Vector 迁移指南](doc/userguide/AI-VECTOR-MIGRATION.zh.md) - 旧版线上数据库升级到 AI 记忆与 pgvector 的操作说明
 
 ### 视频教程（B 站）
 
