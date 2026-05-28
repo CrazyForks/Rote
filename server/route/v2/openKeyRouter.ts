@@ -17,11 +17,13 @@ import {
   deleteArticle,
   deleteAttachment,
   deleteAttachments,
+  deleteEmbeddingsForSource,
   deleteRote,
   deleteRoteAttachmentsByRoteId,
   deleteRoteLinkPreviewsByRoteId,
   editMyProfile,
   editRote,
+  enqueueEmbeddingJob,
   findArticleById,
   findMyRote,
   findRoteById,
@@ -163,6 +165,9 @@ router.post('/articles', isOpenKeyOk, requireOpenKeyPerm('SENDARTICLE'), async (
   const openKey = c.get('openKey')!;
   const { content } = body as { content: string };
   const article = await createArticle({ content, authorId: openKey.userid });
+  void enqueueEmbeddingJob('article', article.id, openKey.userid).catch((error) => {
+    console.error('Failed to enqueue article embedding job (openkey):', error);
+  });
   return c.json(createResponse(article), 201);
 });
 
@@ -279,6 +284,10 @@ router.put(
       throw new Error('Article not found or permission denied');
     }
 
+    void enqueueEmbeddingJob('article', id, openKey.userid).catch((error) => {
+      console.error('Failed to enqueue article embedding job (openkey):', error);
+    });
+
     return c.json(createResponse(updated), 200);
   }
 );
@@ -300,6 +309,10 @@ router.delete(
     if (!removed) {
       throw new Error('Article not found or permission denied');
     }
+
+    void deleteEmbeddingsForSource('article', id).catch((error) => {
+      console.error('Failed to delete article embeddings (openkey):', error);
+    });
 
     return c.json(createResponse(removed), 200);
   }
@@ -338,6 +351,10 @@ router.get('/notes/create', isOpenKeyOk, requireOpenKeyPerm('SENDROTE'), async (
   const result = await createRote({
     ...rote,
     authorid: openKey.userid,
+  });
+
+  void enqueueEmbeddingJob('rote', result.id, openKey.userid).catch((error) => {
+    console.error('Failed to enqueue rote embedding job (openkey):', error);
   });
 
   // Optional: bind a single article (same behavior as authenticated API).
@@ -385,6 +402,10 @@ router.post(
     const result = await createRote({
       ...rote,
       authorid: openKey.userid,
+    });
+
+    void enqueueEmbeddingJob('rote', result.id, openKey.userid).catch((error) => {
+      console.error('Failed to enqueue rote embedding job (openkey):', error);
     });
 
     // Optional: bind a single article (same behavior as authenticated API).
@@ -435,6 +456,10 @@ router.post('/notes', isOpenKeyOk, requireOpenKeyPerm('SENDROTE'), async (c: Hon
   const result = await createRote({
     ...rote,
     authorid: openKey.userid,
+  });
+
+  void enqueueEmbeddingJob('rote', result.id, openKey.userid).catch((error) => {
+    console.error('Failed to enqueue rote embedding job (openkey):', error);
   });
 
   // Optional: bind a single article (same behavior as authenticated API).
@@ -641,6 +666,10 @@ router.put('/notes/:id', isOpenKeyOk, requireOpenKeyPerm('EDITROTE'), async (c: 
 
   await editRote({ ...body, id, authorid: openKey.userid });
 
+  void enqueueEmbeddingJob('rote', id, openKey.userid).catch((error) => {
+    console.error('Failed to enqueue rote embedding job (openkey):', error);
+  });
+
   let articleIdToSet: string | null | undefined;
   if ('articleId' in (body as any)) {
     const articleId = (body as any).articleId;
@@ -694,6 +723,10 @@ router.delete(
 
     const data = await deleteRote({ id, authorid: openKey.userid });
     await deleteRoteAttachmentsByRoteId(id, openKey.userid);
+
+    void deleteEmbeddingsForSource('rote', id).catch((error) => {
+      console.error('Failed to delete rote embeddings (openkey):', error);
+    });
 
     return c.json(createResponse(data), 200);
   }
