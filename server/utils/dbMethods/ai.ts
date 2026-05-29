@@ -862,10 +862,7 @@ function createDefaultFilters(): import('../ai/retrievalPlan').AiRetrievalFilter
   };
 }
 
-export function sanitizePreviousPlan(
-  plan: any,
-  availableTags: string[]
-): AiRetrievalPlan | null {
+export function sanitizePreviousPlan(plan: any, availableTags: string[]): AiRetrievalPlan | null {
   if (!plan || typeof plan !== 'object') return null;
   const tagSet = new Set(availableTags);
   return {
@@ -902,9 +899,7 @@ export function sanitizePreviousPlan(
 
 export function sanitizeExcludeIds(ids: string[] | undefined): string[] | undefined {
   if (!ids?.length) return undefined;
-  const sanitized = ids
-    .filter((id) => /^(rote|article):[a-zA-Z0-9_-]+$/.test(id))
-    .slice(0, 500);
+  const sanitized = ids.filter((id) => /^(rote|article):[a-zA-Z0-9_-]+$/.test(id)).slice(0, 500);
   return sanitized.length > 0 ? sanitized : undefined;
 }
 
@@ -967,8 +962,7 @@ export async function prepareRoteChatContext(params: {
     const chatMessages: ChatMessage[] = [
       {
         role: 'system',
-        content:
-          'You are a helpful assistant. Answer naturally based on the conversation context.',
+        content: 'You are a helpful assistant. Answer naturally based on the conversation context.',
       },
     ];
     if (params.history && params.history.length > 0) {

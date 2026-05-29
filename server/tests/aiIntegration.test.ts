@@ -74,7 +74,13 @@ async function runChat(
     };
   }
   if (!context.plan.retrievalNeeded) {
-    return { plan: context.plan, sources: [], answer: '[chat_only]', planTime, totalTime: planTime };
+    return {
+      plan: context.plan,
+      sources: [],
+      answer: '[chat_only]',
+      planTime,
+      totalTime: planTime,
+    };
   }
 
   const genStart = Date.now();
@@ -93,8 +99,11 @@ async function runChat(
 
 function log(label: string, r: ChatResult) {
   const tags = r.plan.filters?.tags?.include?.join(',') || '';
-  const time = r.plan.filters?.time?.normalizedRange?.label || r.plan.filters?.time?.timeExpression || '';
-  console.log(`  [${label}] plan=${r.plan.retrievalNeeded ? 'retrieve' : 'chat'} tags=${tags} time=${time} sources=${r.sources.length} answer=${r.answer.length}ch plan=${r.planTime}ms total=${r.totalTime}ms`);
+  const time =
+    r.plan.filters?.time?.normalizedRange?.label || r.plan.filters?.time?.timeExpression || '';
+  console.log(
+    `  [${label}] plan=${r.plan.retrievalNeeded ? 'retrieve' : 'chat'} tags=${tags} time=${time} sources=${r.sources.length} answer=${r.answer.length}ch plan=${r.planTime}ms total=${r.totalTime}ms`
+  );
 }
 
 // ============================================================
@@ -102,7 +111,7 @@ function log(label: string, r: ChatResult) {
 // ============================================================
 describe('Fast Path', () => {
   test('#tag → plan has tag filter', async () => {
-    const tag = availableTags.find(t => ['todo', 'solved', 'rote', '生活'].includes(t));
+    const tag = availableTags.find((t) => ['todo', 'solved', 'rote', '生活'].includes(t));
     if (!tag) return console.log('  [SKIP]');
     const r = await runChat(`#${tag}`);
     log(`#${tag}`, r);
@@ -119,7 +128,7 @@ describe('Fast Path', () => {
   }, 30_000);
 
   test('#tag + query → query stripped of #tag', async () => {
-    const tag = availableTags.find(t => ['todo', 'solved', 'rote'].includes(t));
+    const tag = availableTags.find((t) => ['todo', 'solved', 'rote'].includes(t));
     if (!tag) return console.log('  [SKIP]');
     const r = await runChat(`#${tag} 里面开心的事`);
     log(`#${tag}+query`, r);
@@ -156,7 +165,7 @@ describe('LLM Planner', () => {
   }, 60_000);
 
   test('裸标签名 → LLM recognizes tag', async () => {
-    const tag = availableTags.find(t => t === 'todo' || t === '生活');
+    const tag = availableTags.find((t) => t === 'todo' || t === '生活');
     if (!tag) return console.log('  [SKIP]');
     const r = await runChat(tag);
     log(`bare:${tag}`, r);
@@ -199,7 +208,7 @@ describe('Multi-turn', () => {
     expect(t1.plan.retrievalNeeded).toBe(true);
     expect(t1.sources.length).toBeGreaterThan(0);
 
-    const t1Ids = t1.sources.map(s => `${s.sourceType}:${s.sourceId}`);
+    const t1Ids = t1.sources.map((s) => `${s.sourceType}:${s.sourceId}`);
     console.log(`    IDs: ${t1Ids.join(', ')}`);
 
     // Turn 2: "看看更多的"
@@ -208,18 +217,22 @@ describe('Multi-turn', () => {
     expect(t2.plan.retrievalNeeded).toBe(true);
     expect(t2.plan.pagination).toBe('more');
 
-    const t2Ids = t2.sources.map(s => `${s.sourceType}:${s.sourceId}`);
-    const overlap12 = t1Ids.filter(id => t2Ids.includes(id));
+    const t2Ids = t2.sources.map((s) => `${s.sourceType}:${s.sourceId}`);
+    const overlap12 = t1Ids.filter((id) => t2Ids.includes(id));
     expect(overlap12.length).toBe(0);
     console.log(`    T1∩T2: ${overlap12.length}`);
 
     // Turn 3: "还有别的吗"
     const allSeen = [...t1Ids, ...t2Ids];
-    const t3 = await runChat('还有别的吗', { previousPlan: t2.plan, excludeIds: allSeen, limit: 3 });
+    const t3 = await runChat('还有别的吗', {
+      previousPlan: t2.plan,
+      excludeIds: allSeen,
+      limit: 3,
+    });
     log('T3:more', t3);
     expect(t3.plan.retrievalNeeded).toBe(true);
-    const t3Ids = t3.sources.map(s => `${s.sourceType}:${s.sourceId}`);
-    const overlapAll = allSeen.filter(id => t3Ids.includes(id));
+    const t3Ids = t3.sources.map((s) => `${s.sourceType}:${s.sourceId}`);
+    const overlapAll = allSeen.filter((id) => t3Ids.includes(id));
     expect(overlapAll.length).toBe(0);
     console.log(`    T1∩T2∩T3: ${overlapAll.length}`);
   }, 120_000);
@@ -291,7 +304,7 @@ describe('Pure Functions', () => {
   });
 
   test('createFastRetrievalPlan: simple → plan, complex → null', () => {
-    const tag = availableTags.find(t => /^[a-zA-Z]/.test(t));
+    const tag = availableTags.find((t) => /^[a-zA-Z]/.test(t));
     if (!tag) return console.log('  [SKIP] no Latin tag');
 
     // Simple signals → plan

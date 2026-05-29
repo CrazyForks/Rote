@@ -133,15 +133,6 @@ const VALID_OPERATIONS = new Set<AiRetrievalOperation>([
 ]);
 
 const VALID_SOURCE_TYPES = new Set(['rote', 'article']);
-const VALID_TIME_UNITS = new Set<AiTimeUnit>(['day', 'week', 'month', 'year']);
-const VALID_TIME_KINDS = new Set<AiTimeKind>([
-  'none',
-  'rolling',
-  'calendar',
-  'explicit_range',
-  'all_time',
-  'ambiguous',
-]);
 
 const DEFAULT_FILTERS: AiRetrievalFilters = {
   time: null,
@@ -202,52 +193,6 @@ function emptyTagPlan(): AiTagPlan {
   };
 }
 
-function normalizeTagPlan(value: any): AiTagPlan {
-  const match = value?.match === 'all' ? 'all' : 'any';
-  return {
-    include: uniqueStrings(value?.include),
-    exclude: uniqueStrings(value?.exclude),
-    match,
-    unresolved: uniqueStrings(value?.unresolved),
-    confidence: clampConfidence(value?.confidence),
-  };
-}
-
-function normalizeTimePlan(value: any): AiTimePlan | null {
-  if (!value || typeof value !== 'object') return null;
-  const timeKind = VALID_TIME_KINDS.has(value.timeKind) ? value.timeKind : 'none';
-  const direction =
-    value.direction === 'current' || value.direction === 'previous' ? value.direction : null;
-  const unit = VALID_TIME_UNITS.has(value.unit) ? value.unit : null;
-  const amount = Number.isFinite(Number(value.amount))
-    ? Math.max(1, Math.floor(Number(value.amount)))
-    : null;
-
-  return {
-    timeExpression: value.timeExpression ? String(value.timeExpression) : null,
-    timeKind,
-    direction,
-    amount,
-    unit,
-    from: value.from ? String(value.from) : null,
-    to: value.to ? String(value.to) : null,
-    confidence: clampConfidence(value.confidence),
-    needsClarification: value.needsClarification === true,
-  };
-}
-
-function normalizeFilters(value: any): AiRetrievalFilters {
-  const tags = normalizeTagPlan(value?.tags);
-  return {
-    time: normalizeTimePlan(value?.time),
-    tags,
-    semanticScope: uniqueStrings(value?.semanticScope),
-    sourceTypes: normalizeSourceTypes(value?.sourceTypes),
-    state: value?.state === 'private' || value?.state === 'public' ? value.state : 'all',
-    archived: typeof value?.archived === 'boolean' ? value.archived : null,
-  };
-}
-
 export function fallbackPlan(message: string): AiRetrievalPlan {
   return {
     originalMessage: message,
@@ -304,8 +249,10 @@ export function sanitizePlannerOutput(raw: any, message: string): PlannerOutput 
         exclude: uniqueStrings(raw.patch.tags.exclude),
       };
     }
-    if (typeof raw.patch.timeExpression === 'string') patch.timeExpression = raw.patch.timeExpression;
-    if (Array.isArray(raw.patch.sourceTypes)) patch.sourceTypes = normalizeSourceTypes(raw.patch.sourceTypes);
+    if (typeof raw.patch.timeExpression === 'string')
+      patch.timeExpression = raw.patch.timeExpression;
+    if (Array.isArray(raw.patch.sourceTypes))
+      patch.sourceTypes = normalizeSourceTypes(raw.patch.sourceTypes);
     if (Array.isArray(raw.patch.operations)) {
       patch.operations = raw.patch.operations.filter((op: unknown): op is AiRetrievalOperation =>
         VALID_OPERATIONS.has(op as AiRetrievalOperation)
@@ -876,7 +823,7 @@ export function mergePlan(
   previousPlan: AiRetrievalPlan,
   patch: PlannerOutput['patch'] | undefined,
   mode: 'replace' | 'add' | 'exclude',
-  availableTags: string[]
+  _availableTags: string[]
 ): AiRetrievalPlan {
   if (!patch) return previousPlan;
   const merged = { ...previousPlan, originalMessage: patch.query || previousPlan.originalMessage };
