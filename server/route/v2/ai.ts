@@ -344,9 +344,11 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
         const needsMore = !sentAny && buffer.startsWith(NEEDS_MORE_TAG);
 
         if (!needsMore || pass === MAX_STREAM_PASSES - 1) {
-          // Final answer — send remaining buffer
-          const remaining = stripNeedsMoreTag(buffer);
-          if (remaining) await writeSseEvent(stream, 'delta', { text: remaining });
+          // Final answer — send remaining buffer if not already sent
+          if (!sentAny) {
+            const remaining = stripNeedsMoreTag(buffer);
+            if (remaining) await writeSseEvent(stream, 'delta', { text: remaining });
+          }
           break;
         }
 
