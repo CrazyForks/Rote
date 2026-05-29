@@ -49,43 +49,27 @@ export interface SemanticSearchResult {
 const VALID_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
 const MAX_VECTOR_SEARCH_LIMIT = 50;
 const DEFAULT_CHAT_LIMIT = 15;
-const MAX_RETRIEVAL_PASSES = 3;
+const DEFAULT_EVIDENCE_CONTEXT_BUDGET = 16_000;
+const DEFAULT_EVIDENCE_SNIPPET_LENGTH = 900;
+const MAX_EVIDENCE_SOURCE_COUNT = 18;
+const MIN_DEEP_SAMPLE_SIZE = 8;
+const MIN_COMPARISON_GROUP_SAMPLE_SIZE = 3;
+const LEGACY_NEEDS_MORE_TAG = '<needs_more/>';
 
-export const NEEDS_MORE_TAG = '<needs_more/>';
+export type EvidenceSampleStatus = 'no_evidence' | 'limited_sample' | 'adequate';
 
-/**
- * Strip the `<needs_more/>` prefix from an LLM response.
- */
-export function stripNeedsMoreTag(text: string): string {
-  return text.startsWith(NEEDS_MORE_TAG) ? text.slice(NEEDS_MORE_TAG.length).trim() : text;
-}
-
-/**
- * Rebuild the messages array for a subsequent multi-pass retrieval round.
- * Keeps the system prompt and history, replaces the last user message with
- * a prompt that includes ALL accumulated sources.
- */
-export function rebuildMultiPassMessages(
-  currentMessages: ChatMessage[],
-  plan: AiRetrievalPlan,
-  allSources: SemanticSearchResult[],
-  fallbackMessage: string
-): ChatMessage[] {
-  const scopeSummary = plan.summary?.length ? plan.summary.join('；') : '默认范围';
-  const operations = plan.operations.join(', ');
-  const fullContext = allSources
-    .map(
-      (source, i) =>
-        `[${i + 1}] ${source.sourceType}:${source.sourceId}\n${source.text.slice(0, 1800)}`
-    )
-    .join('\n\n');
-  const prompt = `Retrieval scope: ${scopeSummary}\nOperations: ${operations}\n\nContext (includes ${allSources.length} notes):\n${fullContext}\n\nQuestion:\n${plan.originalMessage || fallbackMessage}`;
-
-  return [
-    currentMessages[0], // keep system prompt
-    ...currentMessages.slice(1, -1), // keep history
-    { role: 'user' as const, content: prompt },
-  ];
+export interface RetrievalContextDiagnostics {
+  candidateCount: number;
+  contextSourceCount: number;
+  omittedSourceCount: number;
+  minUsefulSourceCount: number;
+  sampleStatus: EvidenceSampleStatus;
+  groupStats: Array<{
+    label: string;
+    candidateCount: number;
+    contextSourceCount: number;
+    sampleStatus: EvidenceSampleStatus;
+  }>;
 }
 
 function getRuntimeAiConfig(): AiConfig {
@@ -147,6 +131,82 @@ function buildTextArraySql(values: string[]) {
 
 function vectorIndexName(dimensions: number): string {
   return `document_embeddings_embedding_hnsw_${dimensions}_idx`;
+}
+
+function isDeepAnalysisPlan(plan: AiRetrievalPlan): boolean {
+  const deepOperations = new Set([
+    'analyze_personality',
+    'analyze_mood',
+    'analyze_stress',
+    'find_open_loops',
+    'timeline',
+    'compare',
+  ]);
+  return plan.operations.some((operation) => deepOperations.has(operation));
+}
+
+function resolveRetrievalLimit(plan: AiRetrievalPlan, requestedLimit?: number): number {
+  const baseLimit = requestedLimit || DEFAULT_CHAT_LIMIT;
+  return isDeepAnalysisPlan(plan) ? Math.max(baseLimit, 40) : baseLimit;
+}
+
+function getMinUsefulSourceCount(plan: AiRetrievalPlan): number {
+  if (plan.comparison?.groups.length) {
+    return plan.comparison.groups.length * MIN_COMPARISON_GROUP_SAMPLE_SIZE;
+  }
+  return isDeepAnalysisPlan(plan) ? MIN_DEEP_SAMPLE_SIZE : 1;
+}
+
+function classifySampleStatus(count: number, minUsefulCount: number): EvidenceSampleStatus {
+  if (count <= 0) return 'no_evidence';
+  return count < minUsefulCount ? 'limited_sample' : 'adequate';
+}
+
+function stripLegacyNeedsMoreTag(text: string): string {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith(LEGACY_NEEDS_MORE_TAG)
+    ? trimmed.slice(LEGACY_NEEDS_MORE_TAG.length).trimStart()
+    : text;
+}
+
+function fallbackAnswer(sources: SemanticSearchResult[]): string {
+  if (sources.length === 0) {
+    return 'No matching Rote memory was found for this question, so I cannot answer from your notes yet.';
+  }
+  return 'I found related Rote memory, but the model did not return a usable answer. Please try again or narrow the scope.';
+}
+
+function formatEvidenceDate(value: unknown): string | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatEvidenceTags(tags: unknown): string {
+  return Array.isArray(tags) && tags.length ? tags.map((tag) => `#${tag}`).join(' ') : '';
+}
+
+function buildEvidenceBlock(
+  source: SemanticSearchResult,
+  index: number,
+  maxSnippetLength: number,
+  groupLabels: string[] = []
+): string {
+  const date = formatEvidenceDate(source.metadata?.createdAt);
+  const tags = formatEvidenceTags(source.metadata?.tags);
+  const meta = [
+    `Type: ${source.sourceType}`,
+    groupLabels.length ? `Groups: ${groupLabels.join(', ')}` : '',
+    date ? `Date: ${date}` : '',
+    tags ? `Tags: ${tags}` : '',
+    `Similarity: ${source.similarity.toFixed(3)}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return `[${index}] ${source.sourceType}:${source.sourceId}\n${meta}\nExcerpt:\n${source.text
+    .slice(0, maxSnippetLength)
+    .trim()}`;
 }
 
 async function logChatTokenUsage(
@@ -770,6 +830,7 @@ export async function semanticSearch(params: {
     params.scope === 'public'
       ? sql`
         AND de."sourceType" = 'rote'
+        AND r."authorid" = de."ownerId"
         AND r."state" = 'public'
         AND r."archived" = false
         AND NOT EXISTS (
@@ -785,7 +846,14 @@ export async function semanticSearch(params: {
             : sql``
         }
       `
-      : sql`AND de."ownerId" = ${params.ownerId}`;
+      : sql`
+        AND de."ownerId" = ${params.ownerId}
+        AND (
+          (de."sourceType" = 'rote' AND r."authorid" = ${params.ownerId})
+          OR
+          (de."sourceType" = 'article' AND a."authorId" = ${params.ownerId})
+        )
+      `;
 
   const rows = (await db.execute(sql`
     SELECT
@@ -861,9 +929,16 @@ export async function buildRetrievalContext(params: {
   plan: AiRetrievalPlan;
   limit: number;
   excludeIds?: string[];
-}): Promise<{ sources: SemanticSearchResult[]; context: string }> {
+}): Promise<{
+  sources: SemanticSearchResult[];
+  context: string;
+  diagnostics: RetrievalContextDiagnostics;
+}> {
   const { plan } = params;
   const safeExcludeIds = sanitizeExcludeIds(params.excludeIds);
+  const minUsefulSourceCount = getMinUsefulSourceCount(plan);
+  const maxSnippetLength = isDeepAnalysisPlan(plan) ? 700 : DEFAULT_EVIDENCE_SNIPPET_LENGTH;
+  const hasComparisonGroups = Boolean(plan.comparison?.groups.length);
 
   const baseSearch = async (filters: AiRetrievalFilters, limit: number) =>
     semanticSearch({
@@ -908,24 +983,91 @@ export async function buildRetrievalContext(params: {
     .sort((a, b) => b.similarity - a.similarity)
     .slice(0, params.limit);
 
-  const sourceIndex = new Map(
-    sources.map((source, index) => [`${source.sourceType}:${source.sourceId}`, index + 1])
-  );
-  const context = groupedResults
-    .map((group) => {
-      const groupContext = group.sources
-        .map((source) => {
-          const index = sourceIndex.get(`${source.sourceType}:${source.sourceId}`);
-          if (!index) return '';
-          return `[${index}] ${source.sourceType}:${source.sourceId}\n${source.text.slice(0, 1800)}`;
-        })
-        .filter(Boolean)
-        .join('\n\n');
-      return `${group.label}:\n${groupContext || '(no relevant context found)'}`;
-    })
-    .join('\n\n');
+  const contextSources: SemanticSearchResult[] = [];
+  const contextBlocks: string[] = [];
+  let remainingBudget = DEFAULT_EVIDENCE_CONTEXT_BUDGET;
+  const groupLabelsBySourceKey = new Map<string, Set<string>>();
+  groupedResults.forEach((group) => {
+    group.sources.forEach((source) => {
+      const key = `${source.sourceType}:${source.sourceId}`;
+      const labels = groupLabelsBySourceKey.get(key) || new Set<string>();
+      labels.add(group.label);
+      groupLabelsBySourceKey.set(key, labels);
+    });
+  });
 
-  return { sources, context };
+  for (const source of sources.slice(0, MAX_EVIDENCE_SOURCE_COUNT)) {
+    const index = contextSources.length + 1;
+    const key = `${source.sourceType}:${source.sourceId}`;
+    const groupLabels = hasComparisonGroups
+      ? Array.from(groupLabelsBySourceKey.get(key) || [])
+      : [];
+    let block = buildEvidenceBlock(source, index, maxSnippetLength, groupLabels);
+    if (block.length > remainingBudget) {
+      if (contextSources.length > 0) break;
+      block = buildEvidenceBlock(source, index, Math.max(300, remainingBudget - 240), groupLabels);
+      if (block.length > remainingBudget) {
+        block = block.slice(0, Math.max(0, remainingBudget - 20)).trim();
+      }
+    }
+
+    if (!block) break;
+    contextSources.push(source);
+    contextBlocks.push(block);
+    remainingBudget -= block.length + 2;
+  }
+
+  const contextSourceKeys = new Set(
+    contextSources.map((source) => `${source.sourceType}:${source.sourceId}`)
+  );
+  const groupStats = groupedResults.map((group) => {
+    const groupKeys = new Set(
+      group.sources.map((source) => `${source.sourceType}:${source.sourceId}`)
+    );
+    const groupMinUsefulCount = plan.comparison?.groups.length
+      ? MIN_COMPARISON_GROUP_SAMPLE_SIZE
+      : minUsefulSourceCount;
+    return {
+      label: group.label,
+      candidateCount: groupKeys.size,
+      contextSourceCount: Array.from(groupKeys).filter((key) => contextSourceKeys.has(key)).length,
+      sampleStatus: classifySampleStatus(groupKeys.size, groupMinUsefulCount),
+    };
+  });
+  let sampleStatus = classifySampleStatus(sources.length, minUsefulSourceCount);
+  if (groupStats.length > 1) {
+    if (groupStats.every((group) => group.sampleStatus === 'no_evidence')) {
+      sampleStatus = 'no_evidence';
+    } else if (groupStats.some((group) => group.sampleStatus !== 'adequate')) {
+      sampleStatus = 'limited_sample';
+    }
+  }
+  const diagnostics: RetrievalContextDiagnostics = {
+    candidateCount: sources.length,
+    contextSourceCount: contextSources.length,
+    omittedSourceCount: Math.max(sources.length - contextSources.length, 0),
+    minUsefulSourceCount,
+    sampleStatus,
+    groupStats,
+  };
+  const groupSummary = groupStats
+    .map(
+      (group) =>
+        `- ${group.label}: ${group.contextSourceCount}/${group.candidateCount} sources in context (${group.sampleStatus})`
+    )
+    .join('\n');
+  const evidenceSummary = `Evidence summary:
+- Candidate sources found: ${diagnostics.candidateCount}
+- Sources included in answer context: ${diagnostics.contextSourceCount}
+- Omitted because of context budget: ${diagnostics.omittedSourceCount}
+- Minimum useful sources for this operation: ${diagnostics.minUsefulSourceCount}
+- Sample status: ${diagnostics.sampleStatus}
+${groupSummary ? `\nGroup coverage:\n${groupSummary}` : ''}`;
+  const context = `${evidenceSummary}\n\nEvidence:\n${
+    contextBlocks.length ? contextBlocks.join('\n\n') : '(no matching evidence found)'
+  }`;
+
+  return { sources: contextSources, context, diagnostics };
 }
 
 export async function chatWithRoteContext(params: {
@@ -955,43 +1097,13 @@ export async function chatWithRoteContext(params: {
     };
   }
 
-  let allSources = [...sources];
-  let currentMessages = [...messages];
-  let answer = '';
-  const seenIds = new Set<string>(sources.map((s) => `${s.sourceType}:${s.sourceId}`));
-
-  for (let pass = 0; pass < MAX_RETRIEVAL_PASSES; pass++) {
-    const { content, usage } = await createChatCompletion(config.chat, currentMessages);
-    if (usage) {
-      await logChatTokenUsage(params.ownerId, config.chat.model, usage);
-    }
-
-    if (!content.startsWith(NEEDS_MORE_TAG) || pass === MAX_RETRIEVAL_PASSES - 1) {
-      answer = stripNeedsMoreTag(content);
-      break;
-    }
-
-    answer = stripNeedsMoreTag(content);
-
-    // Re-fetch with excluded IDs
-    const excludeIds = Array.from(seenIds);
-    const { sources: newSources } = await buildRetrievalContext({
-      ownerId: params.ownerId,
-      plan,
-      limit: params.limit || DEFAULT_CHAT_LIMIT,
-      excludeIds,
-    });
-
-    if (!newSources.length) break;
-
-    for (const s of newSources) {
-      seenIds.add(`${s.sourceType}:${s.sourceId}`);
-    }
-    allSources = [...allSources, ...newSources];
-    currentMessages = rebuildMultiPassMessages(currentMessages, plan, allSources, params.message);
+  const { content, usage } = await createChatCompletion(config.chat, messages);
+  if (usage) {
+    await logChatTokenUsage(params.ownerId, config.chat.model, usage);
   }
+  const answer = stripLegacyNeedsMoreTag(content).trim() || fallbackAnswer(sources);
 
-  return { answer, sources: allSources, plan };
+  return { answer, sources, plan };
 }
 
 export function sanitizePreviousPlan(plan: any, availableTags: string[]): AiRetrievalPlan | null {
@@ -1116,17 +1228,7 @@ export async function prepareRoteChatContext(params: {
     return { config, messages: chatMessages, sources: [], plan };
   }
 
-  let limit = params.limit || DEFAULT_CHAT_LIMIT;
-  const deepOperations = new Set([
-    'analyze_personality',
-    'analyze_mood',
-    'find_open_loops',
-    'timeline',
-    'compare',
-  ]);
-  if (plan.operations.some((op) => deepOperations.has(op))) {
-    limit = Math.max(limit, 40);
-  }
+  const limit = resolveRetrievalLimit(plan, params.limit);
 
   const { sources, context } = await buildRetrievalContext({
     ownerId: params.ownerId,
@@ -1147,13 +1249,14 @@ export async function prepareRoteChatContext(params: {
       role: 'system',
       content: `You answer questions using the user provided Rote notes and articles. Cite source numbers when useful. Respect the retrieval scope and mention when the answer is limited by that scope.
 
-CRITICAL INSTRUCTION FOR COMPLEX ANALYSIS (e.g., personality analysis, MBTI, mood tracking, pattern detection):
-If you do not have a sufficiently large sample size of notes to make a highly confident assessment, you MUST output the tag <needs_more/> at the VERY BEGINNING of your response (before ANY other text). 
-Do NOT attempt to "do your best" or "guess" with limited data. Output <needs_more/> immediately so the system can automatically fetch more notes for you.
+Evidence policy:
+- Never request another retrieval pass and never output internal protocol markers.
+- If the evidence summary says "no_evidence", say that no matching records were found and avoid inventing.
+- If the evidence summary says "limited_sample", still answer when useful, but clearly label the answer as tentative and explain that the sample is small.
+- For personality, MBTI, mood, stress, or pattern analysis, prefer signals and hypotheses over firm conclusions unless the evidence summary says the sample is adequate.
+- If sources were omitted because of context budget, answer from the included evidence and mention that the view is limited when relevant.
 
-Only use <needs_more/> when you genuinely need a larger sample size. Do NOT use it for simple factual lookups where the current context already answers the question.
-
-If the context is insufficient and <needs_more/> would not help (e.g., the user simply has very few notes in total), say so clearly and avoid inventing facts.`,
+Answer in the user's language.`,
     },
   ];
 
