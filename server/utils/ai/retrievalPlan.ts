@@ -63,6 +63,45 @@ export interface AiRetrievalComparison {
   }>;
 }
 
+export type PlannerIntent =
+  | 'chat_only'
+  | 'new_search'
+  | 'more'
+  | 'replace_filter'
+  | 'add_filter'
+  | 'exclude_filter'
+  | 'clarify';
+
+export type PlannerReasonCode =
+  | 'greeting'
+  | 'thanks'
+  | 'explicit_tag'
+  | 'bare_tag'
+  | 'explicit_time'
+  | 'note_analysis'
+  | 'more_results'
+  | 'replace_filter'
+  | 'exclude_filter'
+  | 'ambiguous_retrieve'
+  | 'followup_needs_context';
+
+export interface PlannerOutput {
+  intent: PlannerIntent;
+  patch?: {
+    query?: string;
+    tags?: { include?: string[]; exclude?: string[] };
+    timeExpression?: string;
+    sourceTypes?: ('rote' | 'article')[];
+    operations?: AiRetrievalOperation[];
+    comparison?: {
+      mode: 'time' | 'tag_groups' | 'filter_groups';
+      groups: Array<{ label: string; tags?: string[]; timeExpression?: string }>;
+    };
+  };
+  confidence: number;
+  reasonCode: PlannerReasonCode;
+}
+
 export interface AiRetrievalPlan {
   originalMessage?: string;
   operations: AiRetrievalOperation[];
@@ -73,6 +112,8 @@ export interface AiRetrievalPlan {
   needsClarification: boolean;
   clarificationQuestion: string | null;
   summary?: string[];
+  retrievalNeeded: boolean;
+  pagination: 'more' | null;
 }
 
 export interface AiNormalizedTimeRange {
@@ -161,10 +202,6 @@ function emptyTagPlan(): AiTagPlan {
   };
 }
 
-function addUnique<T>(values: T[], value: T): T[] {
-  return values.includes(value) ? values : [...values, value];
-}
-
 function normalizeTagPlan(value: any): AiTagPlan {
   const match = value?.match === 'all' ? 'all' : 'any';
   return {
@@ -211,7 +248,7 @@ function normalizeFilters(value: any): AiRetrievalFilters {
   };
 }
 
-function fallbackPlan(message: string): AiRetrievalPlan {
+export function fallbackPlan(message: string): AiRetrievalPlan {
   return {
     originalMessage: message,
     operations: ['summarize'],
@@ -221,49 +258,86 @@ function fallbackPlan(message: string): AiRetrievalPlan {
     confidence: 0.4,
     needsClarification: false,
     clarificationQuestion: null,
+    retrievalNeeded: true,
+    pagination: null,
   };
 }
 
-function sanitizePlannerOutput(raw: any, message: string): AiRetrievalPlan {
-  const operations = Array.isArray(raw?.operations)
-    ? raw.operations.filter((operation: unknown): operation is AiRetrievalOperation =>
-        VALID_OPERATIONS.has(operation as AiRetrievalOperation)
-      )
-    : [];
-  const filters = normalizeFilters(raw?.filters);
-  const comparison =
-    raw?.comparison && typeof raw.comparison === 'object'
-      ? {
-          mode:
-            raw.comparison.mode === 'tag_groups' ||
-            raw.comparison.mode === 'filter_groups' ||
-            raw.comparison.mode === 'time'
-              ? raw.comparison.mode
-              : 'filter_groups',
-          groups: Array.isArray(raw.comparison.groups)
-            ? raw.comparison.groups
-                .map((group: any) => ({
-                  label: String(group?.label || '').trim() || 'Group',
-                  filters: normalizeFilters(group?.filters),
-                }))
-                .slice(0, 4)
-            : [],
-        }
-      : null;
+const VALID_INTENTS = new Set<PlannerIntent>([
+  'chat_only',
+  'new_search',
+  'more',
+  'replace_filter',
+  'add_filter',
+  'exclude_filter',
+  'clarify',
+]);
 
-  return {
-    originalMessage: message,
-    operations: operations.length ? Array.from(new Set(operations)) : ['summarize'],
-    query: String(raw?.query || message).trim() || message,
-    filters,
-    comparison: comparison && comparison.groups.length ? comparison : null,
-    confidence: clampConfidence(raw?.confidence),
-    needsClarification: raw?.needsClarification === true,
-    clarificationQuestion:
-      typeof raw?.clarificationQuestion === 'string' && raw.clarificationQuestion.trim()
-        ? raw.clarificationQuestion.trim()
-        : null,
-  };
+const VALID_REASON_CODES = new Set<PlannerReasonCode>([
+  'greeting',
+  'thanks',
+  'explicit_tag',
+  'bare_tag',
+  'explicit_time',
+  'note_analysis',
+  'more_results',
+  'replace_filter',
+  'exclude_filter',
+  'ambiguous_retrieve',
+  'followup_needs_context',
+]);
+
+export function sanitizePlannerOutput(raw: any, message: string): PlannerOutput {
+  const intent: PlannerIntent = VALID_INTENTS.has(raw?.intent) ? raw.intent : 'new_search';
+  const confidence = clampConfidence(raw?.confidence);
+  const reasonCode: PlannerReasonCode = VALID_REASON_CODES.has(raw?.reasonCode)
+    ? raw.reasonCode
+    : 'ambiguous_retrieve';
+
+  let patch: PlannerOutput['patch'];
+  if (raw?.patch && typeof raw.patch === 'object') {
+    patch = {};
+    if (typeof raw.patch.query === 'string') patch.query = raw.patch.query.trim();
+    if (raw.patch.tags && typeof raw.patch.tags === 'object') {
+      patch.tags = {
+        include: uniqueStrings(raw.patch.tags.include),
+        exclude: uniqueStrings(raw.patch.tags.exclude),
+      };
+    }
+    if (typeof raw.patch.timeExpression === 'string') patch.timeExpression = raw.patch.timeExpression;
+    if (Array.isArray(raw.patch.sourceTypes)) patch.sourceTypes = normalizeSourceTypes(raw.patch.sourceTypes);
+    if (Array.isArray(raw.patch.operations)) {
+      patch.operations = raw.patch.operations.filter((op: unknown): op is AiRetrievalOperation =>
+        VALID_OPERATIONS.has(op as AiRetrievalOperation)
+      );
+    }
+    if (raw.patch.comparison && typeof raw.patch.comparison === 'object') {
+      const comp = raw.patch.comparison;
+      const validModes = new Set(['time', 'tag_groups', 'filter_groups']);
+      patch.comparison = {
+        mode: validModes.has(comp.mode) ? comp.mode : 'filter_groups',
+        groups: Array.isArray(comp.groups)
+          ? comp.groups.slice(0, 4).map((g: any) => ({
+              label: String(g?.label || '').trim() || 'Group',
+              tags: Array.isArray(g?.tags) ? uniqueStrings(g.tags) : undefined,
+              timeExpression: typeof g?.timeExpression === 'string' ? g.timeExpression : undefined,
+            }))
+          : [],
+      };
+    }
+  }
+
+  // chat_only with low confidence → downgrade to new_search
+  if (intent === 'chat_only' && confidence < 0.8) {
+    return {
+      intent: 'new_search',
+      patch: patch || { query: message },
+      confidence,
+      reasonCode: 'ambiguous_retrieve',
+    };
+  }
+
+  return { intent, patch, confidence, reasonCode };
 }
 
 function parsePlannerJson(text: string): any {
@@ -496,7 +570,8 @@ function normalizeTimeRange(
       label: time.timeExpression || '指定范围',
     };
     normalized = { ...time, from: range.from, to: range.to, needsClarification: false };
-  } else {
+  } else if (time) {
+    // Time was provided but didn't match any specific pattern — apply default window
     const days = defaultDaysForOperations(operations);
     const start = addDays(today, -days);
     range = {
@@ -516,6 +591,7 @@ function normalizeTimeRange(
       needsClarification: false,
     };
   }
+  // else: no time specified → leave normalized = null, no time restriction
 
   return {
     time: normalized ? { ...normalized, normalizedRange: range } : null,
@@ -705,6 +781,7 @@ function buildClarificationQuestion(plan: AiRetrievalPlan): string {
 
 function buildSummary(plan: AiRetrievalPlan): string[] {
   const summary: string[] = [];
+  if (plan.pagination === 'more') summary.push('查看更多');
   const range = plan.filters.time?.normalizedRange;
   if (range) summary.push(`时间：${range.label}`);
   if (plan.filters.tags.include.length) {
@@ -729,6 +806,185 @@ function buildSummary(plan: AiRetrievalPlan): string[] {
     summary.push(`对比：${plan.comparison.groups.map((group) => group.label).join(' / ')}`);
   }
   return summary;
+}
+
+const COMPLEX_MODIFIER_PATTERNS = [
+  /不要|排除|无关|不是/,
+  /换成|改成|用/,
+  /再加|加上/,
+  /对比|比较|区别/,
+  /待办|todo|任务/,
+  /分析|总结|风格|压力|情绪/,
+];
+
+export function hasComplexModifiers(message: string): boolean {
+  // Strip #hashtag references so tag names don't false-positive as modifiers
+  const stripped = message.replace(/#[\p{L}\p{N}_-]+/gu, '');
+  return COMPLEX_MODIFIER_PATTERNS.some((p) => p.test(stripped));
+}
+
+export function buildNewSearchPlan(
+  patch: PlannerOutput['patch'],
+  availableTags: string[]
+): AiRetrievalPlan {
+  const message = patch?.query || '';
+  const operations: AiRetrievalOperation[] = patch?.operations?.length
+    ? patch.operations
+    : ['summarize'];
+  const filters = createDefaultFilters();
+  if (patch?.tags?.include) filters.tags.include = patch.tags.include;
+  if (patch?.tags?.exclude) filters.tags.exclude = patch.tags.exclude;
+  if (patch?.sourceTypes) filters.sourceTypes = patch.sourceTypes;
+  if (patch?.timeExpression) {
+    filters.time = detectFastTime(patch.timeExpression);
+  }
+  filters.tags.match = filters.tags.include.length > 1 ? 'all' : 'any';
+
+  let comparison: AiRetrievalComparison | null = null;
+  if (patch?.comparison && patch.comparison.groups.length >= 2) {
+    comparison = {
+      mode: patch.comparison.mode,
+      groups: patch.comparison.groups.map((g) => {
+        const groupFilters = createDefaultFilters();
+        if (g.tags) groupFilters.tags.include = g.tags;
+        if (g.timeExpression) groupFilters.time = detectFastTime(g.timeExpression);
+        groupFilters.tags.match = groupFilters.tags.include.length > 1 ? 'all' : 'any';
+        return { label: g.label, filters: groupFilters };
+      }),
+    };
+  }
+
+  return normalizePlan(
+    message,
+    {
+      originalMessage: message,
+      operations,
+      query: message,
+      filters,
+      comparison,
+      confidence: 0.9,
+      needsClarification: false,
+      clarificationQuestion: null,
+      retrievalNeeded: true,
+      pagination: null,
+    },
+    availableTags
+  );
+}
+
+export function mergePlan(
+  previousPlan: AiRetrievalPlan,
+  patch: PlannerOutput['patch'] | undefined,
+  mode: 'replace' | 'add' | 'exclude',
+  availableTags: string[]
+): AiRetrievalPlan {
+  if (!patch) return previousPlan;
+  const merged = { ...previousPlan, originalMessage: patch.query || previousPlan.originalMessage };
+
+  if (patch.query) merged.query = patch.query;
+  if (patch.operations) merged.operations = patch.operations;
+
+  if (patch.timeExpression) {
+    merged.filters = { ...merged.filters, time: detectFastTime(patch.timeExpression) };
+  }
+
+  if (patch.tags) {
+    const prevInclude = new Set(merged.filters.tags.include);
+    const prevExclude = new Set(merged.filters.tags.exclude);
+    const patchInclude = new Set(patch.tags.include || []);
+    const patchExclude = new Set(patch.tags.exclude || []);
+
+    if (mode === 'replace') {
+      merged.filters = {
+        ...merged.filters,
+        tags: {
+          ...merged.filters.tags,
+          include: Array.from(patchInclude),
+          exclude: Array.from(patchExclude),
+          match: patchInclude.size > 1 ? 'all' : 'any',
+        },
+      };
+    } else if (mode === 'add') {
+      patchInclude.forEach((t) => prevInclude.add(t));
+      merged.filters = {
+        ...merged.filters,
+        tags: {
+          ...merged.filters.tags,
+          include: Array.from(prevInclude),
+          match: prevInclude.size > 1 ? 'all' : 'any',
+        },
+      };
+    } else if (mode === 'exclude') {
+      patchExclude.forEach((t) => {
+        prevExclude.add(t);
+        prevInclude.delete(t);
+      });
+      merged.filters = {
+        ...merged.filters,
+        tags: {
+          ...merged.filters.tags,
+          include: Array.from(prevInclude),
+          exclude: Array.from(prevExclude),
+          match: prevInclude.size > 1 ? 'all' : 'any',
+        },
+      };
+    }
+  }
+
+  merged.summary = buildSummary(merged);
+  return merged;
+}
+
+export function reducePlan(
+  output: PlannerOutput,
+  previousPlan: AiRetrievalPlan | null,
+  availableTags: string[]
+): AiRetrievalPlan {
+  // chat_only with low confidence → downgrade to new_search
+  if (output.intent === 'chat_only' && output.confidence < 0.8) {
+    output = { ...output, intent: 'new_search', reasonCode: 'ambiguous_retrieve' };
+  }
+
+  switch (output.intent) {
+    case 'chat_only':
+      return { ...fallbackPlan(''), retrievalNeeded: false, pagination: null };
+
+    case 'new_search':
+      return buildNewSearchPlan(output.patch, availableTags);
+
+    case 'more':
+      if (!previousPlan) {
+        return {
+          ...fallbackPlan(output.patch?.query || ''),
+          needsClarification: true,
+          clarificationQuestion: '你想看哪一类笔记的更多结果？',
+          retrievalNeeded: false,
+          pagination: null,
+        };
+      }
+      return { ...previousPlan, pagination: 'more', retrievalNeeded: true };
+
+    case 'replace_filter':
+      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
+      return mergePlan(previousPlan, output.patch, 'replace', availableTags);
+
+    case 'add_filter':
+      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
+      return mergePlan(previousPlan, output.patch, 'add', availableTags);
+
+    case 'exclude_filter':
+      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
+      return mergePlan(previousPlan, output.patch, 'exclude', availableTags);
+
+    case 'clarify':
+      return {
+        ...fallbackPlan(''),
+        needsClarification: true,
+        clarificationQuestion: '可以再具体一点吗？',
+        retrievalNeeded: false,
+        pagination: null,
+      };
+  }
 }
 
 function normalizePlan(
@@ -780,53 +1036,42 @@ Available sourceTypes: ["rote","article"].
 
 Schema:
 {
-  "operations": ("summarize" | "compare" | "timeline" | "find_open_loops" | "analyze_mood" | "analyze_stress" | "analyze_personality")[],
-  "query": string,
-  "filters": {
-    "time": null | {"timeExpression": string | null, "timeKind": "none" | "rolling" | "calendar" | "explicit_range" | "all_time" | "ambiguous", "direction": null | "current" | "previous", "amount": null | number, "unit": null | "day" | "week" | "month" | "year", "from": null | string, "to": null | string, "confidence": number, "needsClarification": boolean},
-    "tags": {"include": string[], "exclude": string[], "match": "any" | "all", "unresolved": string[], "confidence": number},
-    "semanticScope": string[],
-    "sourceTypes": ("rote" | "article")[],
-    "state": "private" | "public" | "all",
-    "archived": null | boolean
+  "intent": "chat_only" | "new_search" | "more" | "replace_filter" | "add_filter" | "exclude_filter" | "clarify",
+  "patch": {
+    "query": string (optional - the semantic search query),
+    "tags": {"include": string[], "exclude": string[]} (optional),
+    "timeExpression": string (optional - e.g. "最近90天", "本月"),
+    "sourceTypes": ("rote" | "article")[] (optional),
+    "operations": ("summarize" | "compare" | "timeline" | "find_open_loops" | "analyze_mood" | "analyze_stress" | "analyze_personality")[] (optional),
+    "comparison": {"mode": "tag_groups" | "filter_groups" | "time", "groups": [{"label": string, "tags": string[] (optional), "timeExpression": string (optional)}]} (optional - required when operations includes "compare")
   },
-  "comparison": null | {"mode": "time" | "tag_groups" | "filter_groups", "groups": {"label": string, "filters": same shape as filters}[]},
-  "confidence": number,
-  "needsClarification": boolean,
-  "clarificationQuestion": null | string
+  "confidence": number (0-1),
+  "reasonCode": "greeting" | "thanks" | "explicit_tag" | "bare_tag" | "explicit_time" | "note_analysis" | "more_results" | "replace_filter" | "exclude_filter" | "ambiguous_retrieve" | "followup_needs_context"
 }
 
-Rules:
-- Do not force everything into one intent. Use operations to describe the work.
-- 没收尾/Flag/TODO/待办/还没做 -> include "find_open_loops".
-- 心境/情绪/心情 -> "analyze_mood"; 压力 -> "analyze_stress"; MBTI/性格 -> "analyze_personality".
-- 时间线/串起来/按时间 -> "timeline". 对比/相比/变化 -> include "compare" and fill comparison.
-- #tag, "标签 xxx", and exact available tag names are hard tag filters.
-- Natural scopes that are not clearly tags, such as 产品相关/技术类, should go into semanticScope, not unresolved.
-- Unknown explicit #tag values must go into tags.unresolved and needsClarification=true.
-- Comparing #tag A and #tag B should use comparison.mode="tag_groups" with one group per tag.
-- 笔记/记录 -> sourceTypes ["rote"]; 文章/长文 -> ["article"]; default ["rote","article"].
-- 公开 -> state public. 私密/私人 -> private. 未归档/排除归档 -> archived false. 归档里 -> archived true.
-- For time, identify timeExpression/timeKind/amount/unit. The backend will normalize final from/to.
-- If a required time or explicit tag is ambiguous, set needsClarification=true and confidence<=0.64.
-- The clarification question must allow "不限定标签，按关键词搜索" when the ambiguity is an unknown explicit tag.`;
-}
+INTENT RULES:
+- "chat_only": Pure chat/greeting with NO note retrieval needed ("谢谢", "你好", "哈哈", "ok"). Confidence must be >= 0.8.
+- IMPORTANT: If the previous assistant turn had retrieved sources, messages like "你觉得呢", "那怎么办", "为什么" are follow-ups that need context — use "new_search", NOT "chat_only".
+- "new_search": New query — note content search, bare tag names matching available tags, analysis requests ("所有笔记里有哪些开心的", "大喜", "我最近压力大吗").
+- "more": User wants additional results ("看看更多", "还有吗", "more", "多来几条", "还有别的吗", "继续看", "再给我一些"). Do NOT modify patch filters.
+- "replace_filter": Replace a filter ("换成工作" → patch.tags.include=["工作"], "用上个月" → patch.timeExpression="上个月"). Only fill the field being replaced.
+- "add_filter": Add a filter ("再加上生活" → patch.tags.include=["生活"]).
+- "exclude_filter": Exclude a filter ("不要工作" → patch.tags.exclude=["工作"]).
+- "clarify": Message too ambiguous to determine intent.
 
-function detectFastOperations(message: string): AiRetrievalOperation[] {
-  let operations: AiRetrievalOperation[] = [];
-  if (/对比|相比|比较|变化|compare/i.test(message)) operations = addUnique(operations, 'compare');
-  if (/时间线|串.*时间|按时间|timeline/i.test(message)) {
-    operations = addUnique(operations, 'timeline');
-  }
-  if (/没收尾|未收尾|Flag|TODO|todo|待办|还没做|open loop/i.test(message)) {
-    operations = addUnique(operations, 'find_open_loops');
-  }
-  if (/心境|情绪|心情|mood/i.test(message)) operations = addUnique(operations, 'analyze_mood');
-  if (/压力|焦虑|stress/i.test(message)) operations = addUnique(operations, 'analyze_stress');
-  if (/MBTI|性格|人格|personality/i.test(message)) {
-    operations = addUnique(operations, 'analyze_personality');
-  }
-  return operations.length ? operations : ['summarize'];
+PATCH RULES:
+- patch only fills fields that CHANGE. Do NOT copy the full plan.
+- Bare tag names matching available tags → intent="new_search", patch.tags.include=["tagname"].
+- For operations: 没收尾/Flag/TODO/待办/还没做 → "find_open_loops"; 心境/情绪/心情 → "analyze_mood"; 压力/焦虑 → "analyze_stress"; MBTI/性格 → "analyze_personality"; 时间线 → "timeline"; 对比/比较 → "compare".
+- When operations includes "compare", you MUST also fill patch.comparison with mode="tag_groups" (for comparing tags) or mode="time" (for comparing time periods). Each group needs a label and its own tags/timeExpression.
+- 笔记/记录 → patch.sourceTypes=["rote"]; 文章/长文 → ["article"].
+
+CONFIDENCE:
+- When uncertain, prefer "new_search" over "chat_only" to avoid missing retrieval.
+- chat_only confidence < 0.8 will be auto-downgraded to new_search.
+
+REASON CODE:
+- Use reasonCode to annotate WHY you chose this intent, for debugging and evaluation.`;
 }
 
 function detectFastTime(message: string): AiTimePlan | null {
@@ -945,164 +1190,50 @@ function detectFastTime(message: string): AiTimePlan | null {
   return null;
 }
 
-function detectFastSourceTypes(message: string): ('rote' | 'article')[] {
-  const hasRote = /笔记|记录|note|rote/i.test(message);
-  const hasArticle = /文章|长文|article/i.test(message);
-  if (hasRote && !hasArticle) return ['rote'];
-  if (hasArticle && !hasRote) return ['article'];
-  return ['rote', 'article'];
-}
-
-function detectFastState(message: string): 'private' | 'public' | 'all' {
-  if (/公开|public/i.test(message)) return 'public';
-  if (/私密|私人|private/i.test(message)) return 'private';
-  return 'all';
-}
-
-function detectFastArchived(message: string): boolean | null {
-  if (/未归档|没归档|排除归档|非归档/i.test(message)) return false;
-  if (/归档里|归档内容|已归档/i.test(message)) return true;
-  return null;
-}
-
-function findAvailableTagByAlias(scope: string, availableTags: string[]): string | null {
-  const lowerTags = new Map(availableTags.map((tag) => [tag.toLowerCase(), tag]));
-  const aliasMap: Array<{ pattern: RegExp; candidates: string[] }> = [
-    { pattern: /生活|life/i, candidates: ['life', 'lifestyle', '生活'] },
-    { pattern: /工作|work/i, candidates: ['work', '工作'] },
-    { pattern: /产品|product/i, candidates: ['product', '产品'] },
-    { pattern: /技术|tech/i, candidates: ['tech', 'technology', '技术'] },
-    { pattern: /\bAI\b|人工智能|大模型/i, candidates: ['ai', 'AI', 'Ai', '人工智能'] },
-  ];
-  const matched = aliasMap.find((item) => item.pattern.test(scope));
-  if (!matched) return null;
-  for (const candidate of matched.candidates) {
-    const tag = lowerTags.get(candidate.toLowerCase());
-    if (tag) return tag;
-  }
-  return null;
-}
-
-function cleanSemanticScope(value: string): string {
-  return value
-    .replace(/^只看/, '')
-    .replace(/^(最近|近|过去|本月|这个月|上个月|今天|昨天)/, '')
-    .replace(/(相关|类|类型|方面|的)?(记录|笔记|文章|长文|内容).*$/u, '')
-    .replace(/[#，,。.？?！!]/g, ' ')
-    .trim();
-}
-
-function detectSemanticScopes(
+export function createFastRetrievalPlan(
   message: string,
   availableTags: string[]
-): {
-  semanticScope: string[];
-  mappedTags: string[];
-} {
-  const semanticScope = new Set<string>();
-  const mappedTags = new Set<string>();
-  const scopeMatches = [
-    ...message.matchAll(
-      /只看\s*([^，。？！?,!#]+?)(?:相关|类|类型|方面)?(?:记录|笔记|文章|长文|内容)/gu
-    ),
-    ...message.matchAll(
-      /([A-Za-z\u4e00-\u9fa5]+)(?:相关|类|类型|方面)(?:记录|笔记|文章|长文|内容)?/gu
-    ),
-  ];
-
-  scopeMatches.forEach((match) => {
-    const scope = cleanSemanticScope(match[1]);
-    if (!scope || /公开|私密|归档|最近|本月|上月|今天|昨天/.test(scope)) return;
-    const mappedTag = findAvailableTagByAlias(scope, availableTags);
-    if (mappedTag) {
-      mappedTags.add(mappedTag);
-    } else {
-      semanticScope.add(scope);
-    }
-  });
-
-  return {
-    semanticScope: Array.from(semanticScope),
-    mappedTags: Array.from(mappedTags),
-  };
-}
-
-function isLikelyContextDependentFollowUp(message: string): boolean {
-  if (extractExplicitHashTags(message).length > 0 || extractExplicitLabelTags(message).length > 0) {
-    return false;
-  }
-  if (detectFastTime(message)) return false;
-  return /^(那|那么|这个|这些|它|他们|她们|上面|刚才|继续|再|换成|改成|呢)/.test(message.trim());
-}
-
-function createFastRetrievalPlan(
-  message: string,
-  availableTags: string[],
-  history?: { role: 'user' | 'assistant'; content: string }[]
 ): AiRetrievalPlan | null {
-  if (history?.length && isLikelyContextDependentFollowUp(message)) return null;
+  const tags = [...extractExplicitHashTags(message), ...extractExplicitLabelTags(message)];
+  const time = detectFastTime(message);
 
-  const operations = detectFastOperations(message);
-  const filters = createDefaultFilters();
-  filters.time = detectFastTime(message);
-  filters.sourceTypes = detectFastSourceTypes(message);
-  filters.state = detectFastState(message);
-  filters.archived = detectFastArchived(message);
-  filters.tags.include = [
-    ...extractExplicitHashTags(message),
-    ...extractExplicitLabelTags(message),
-  ];
+  // Only fast-path when there are explicit signals AND no complex modifiers
+  if ((tags.length > 0 || time) && !hasComplexModifiers(message)) {
+    // Strip explicit filters from the query text to avoid polluting vector search
+    const stripped = message
+      .replace(/#[\p{L}\p{N}_-]+/gu, '')
+      .replace(/标签\s*\S+/g, '')
+      .replace(
+        /最近\d+[天周月年]|今天|昨天|本月|上个月|全部|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s*(?:到|至|~|-|—)\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g,
+        ''
+      )
+      .trim();
 
-  const scope = detectSemanticScopes(message, availableTags);
-  filters.semanticScope = scope.semanticScope;
-  filters.tags.include = Array.from(new Set([...filters.tags.include, ...scope.mappedTags]));
-  filters.tags.match =
-    filters.tags.include.length > 1 && !operations.includes('compare') ? 'all' : 'any';
+    const filters = createDefaultFilters();
+    filters.tags.include = tags;
+    filters.tags.match = tags.length > 1 ? 'all' : 'any';
+    filters.time = time;
 
-  const explicitTags = [...extractExplicitHashTags(message), ...extractExplicitLabelTags(message)];
-  const comparison =
-    operations.includes('compare') && explicitTags.length >= 2
-      ? {
-          mode: 'tag_groups' as const,
-          groups: explicitTags.slice(0, 4).map((tag) => {
-            const groupFilters = {
-              ...filters,
-              tags: { ...emptyTagPlan(), include: [tag], match: 'all' as const },
-              semanticScope: [],
-            };
-            return {
-              label: `#${tag}`,
-              filters: groupFilters,
-            };
-          }),
-        }
-      : null;
+    return normalizePlan(
+      message,
+      {
+        originalMessage: message,
+        operations: ['summarize'],
+        query: stripped || '',
+        filters,
+        comparison: null,
+        confidence: 0.95,
+        needsClarification: false,
+        clarificationQuestion: null,
+        retrievalNeeded: true,
+        pagination: null,
+      },
+      availableTags
+    );
+  }
 
-  const hasFastSignal =
-    filters.time ||
-    filters.tags.include.length > 0 ||
-    filters.semanticScope.length > 0 ||
-    filters.sourceTypes.length === 1 ||
-    filters.state !== 'all' ||
-    filters.archived !== null ||
-    operations.some((operation) => operation !== 'summarize');
-
-  if (!hasFastSignal) return null;
-
-  return normalizePlan(
-    message,
-    {
-      originalMessage: message,
-      operations,
-      query: message,
-      filters,
-      comparison,
-      confidence: 0.82,
-      needsClarification: false,
-      clarificationQuestion: null,
-    },
-    availableTags
-  );
+  // No explicit signals, or complex modifiers present → let LLM handle it
+  return null;
 }
 
 function applyClarificationAnswer(plan: AiRetrievalPlan, answer: string): AiRetrievalPlan | null {
@@ -1139,6 +1270,7 @@ export async function createRetrievalPlan(params: {
   config: AiConfig;
   pendingPlan?: AiRetrievalPlan | null;
   clarificationAnswer?: string;
+  previousPlan?: AiRetrievalPlan | null;
   history?: { role: 'user' | 'assistant'; content: string }[];
   onThinkingDelta?: (text: string) => Promise<void> | void;
   onUsage?: (usage: ChatCompletionUsage) => Promise<void> | void;
@@ -1155,11 +1287,14 @@ export async function createRetrievalPlan(params: {
   const message = params.pendingPlan?.originalMessage
     ? `${params.pendingPlan.originalMessage}\n补充说明：${params.message}`
     : params.message;
-  const fastPlan = createFastRetrievalPlan(message, availableTags, params.history);
+
+  // Fast path: explicit #tag / 标签 xxx / explicit time with no complex modifiers
+  const fastPlan = createFastRetrievalPlan(message, availableTags);
   if (fastPlan) {
     return fastPlan;
   }
 
+  // LLM planner path: intent + patch + confidence + reasonCode
   const today = toDateString(getShanghaiToday());
   const systemPrompt = buildPlannerPrompt(today, availableTags);
 
@@ -1193,7 +1328,8 @@ export async function createRetrievalPlan(params: {
       }
     }
     const parsed = parsePlannerJson(raw);
-    return normalizePlan(message, sanitizePlannerOutput(parsed, message), availableTags);
+    const plannerOutput = sanitizePlannerOutput(parsed, message);
+    return reducePlan(plannerOutput, params.previousPlan || null, availableTags);
   } catch {
     return normalizePlan(message, fallbackPlan(message), availableTags);
   }

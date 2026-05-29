@@ -69,6 +69,8 @@ function AiMemoryPage() {
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const activeStreamRef = useRef<ActiveStream | null>(null);
+  const seenSourceIdsRef = useRef<Set<string>>(new Set());
+  const currentIsMoreRef = useRef(false);
 
   const {
     data: status,
@@ -124,6 +126,7 @@ function AiMemoryPage() {
 
   const clearChat = useCallback(() => {
     setMessages([]);
+    seenSourceIdsRef.current.clear();
   }, [setMessages]);
 
   function flushStreamContent(assistantId: string) {
@@ -183,16 +186,30 @@ function AiMemoryPage() {
     ]);
 
     try {
+      // Build previousPlan from the last assistant message
+      const lastAssistantForPlan = [...messages].reverse().find((m) => m.role === 'assistant');
+      const previousPlan = options.ignorePendingPlan ? null : lastAssistantForPlan?.plan || null;
+
+      // Always pass accumulated seen source IDs (server decides whether to use them)
+      const excludeIds =
+        seenSourceIdsRef.current.size > 0 ? Array.from(seenSourceIdsRef.current) : undefined;
+
       await aiChatStream(
         {
           message: question,
           limit: 8,
           pendingPlan: activePendingPlan,
           clarificationAnswer: activePendingPlan ? question : undefined,
+          previousPlan,
+          excludeIds,
           history: validHistory.length > 0 ? validHistory : undefined,
         },
         {
           onPlan: (plan) => {
+            currentIsMoreRef.current = plan.pagination === 'more';
+            if (!currentIsMoreRef.current) {
+              seenSourceIdsRef.current.clear();
+            }
             const planTime = performance.now() - start;
             setMessages((prev) =>
               prev.map((message) =>
@@ -226,6 +243,7 @@ function AiMemoryPage() {
             );
           },
           onSources: (sources) => {
+            sources.forEach((s) => seenSourceIdsRef.current.add(`${s.sourceType}:${s.sourceId}`));
             const sourcesTime = performance.now() - start;
             setMessages((prev) =>
               prev.map((message) =>

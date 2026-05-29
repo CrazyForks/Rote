@@ -19,6 +19,7 @@ import {
 import { DEFAULT_AI_CONFIG, mergeAiConfig } from '../ai/providers';
 import {
   createRetrievalPlan,
+  getUserRoteTags,
   type AiRetrievalFilters,
   type AiRetrievalPlan,
   type AiNormalizedTimeRange,
@@ -611,6 +612,7 @@ export async function semanticSearch(params: {
   archived?: boolean | null;
   limit?: number;
   exclude?: { sourceType: AiSourceType; sourceId: string };
+  excludeIds?: string[];
 }): Promise<SemanticSearchResult[]> {
   const config = await getStoredAiConfig();
   if (!isVectorUsable(config)) {
@@ -623,7 +625,21 @@ export async function semanticSearch(params: {
   const dimensions = normalizeEmbeddingDimensions(config.embedding.dimensions);
   const limit = normalizeLimit(params.limit);
   const queryText = [params.query, ...(params.semanticScope || [])].filter(Boolean).join('\n');
-  const { embedding: queryEmbedding, usage } = await createEmbedding(config.embedding, queryText);
+
+  let queryEmbedding: number[];
+  let usage: { prompt_tokens: number; total_tokens: number } | undefined;
+  if (queryText) {
+    const result = await createEmbedding(config.embedding, queryText);
+    queryEmbedding = result.embedding;
+    usage = result.usage;
+  } else {
+    // Empty query (tag/time filter only) — embed a generic text so pgvector
+    // returns all matching results in insertion order (similarity will be low
+    // but not NaN, so the WHERE/HAVING clause still works).
+    const result = await createEmbedding(config.embedding, 'all notes');
+    queryEmbedding = result.embedding;
+    usage = result.usage;
+  }
   if (usage && params.ownerId) {
     logAiTokenUsage({
       userid: params.ownerId,
@@ -657,6 +673,13 @@ export async function semanticSearch(params: {
   const excludeSql = params.exclude
     ? sql`AND NOT (de."sourceType" = ${params.exclude.sourceType} AND de."sourceId" = ${params.exclude.sourceId})`
     : sql``;
+  const excludeIdsSql =
+    params.excludeIds && params.excludeIds.length > 0
+      ? sql`AND NOT ((de."sourceType" || ':' || de."sourceId") = ANY(ARRAY[${sql.join(
+          params.excludeIds.map((id) => sql`${id}`),
+          sql`, `
+        )}]::text[]))`
+      : sql``;
   const tags = {
     include: params.tags?.include?.filter(Boolean) || [],
     exclude: params.tags?.exclude?.filter(Boolean) || [],
@@ -758,6 +781,7 @@ export async function semanticSearch(params: {
       ${permissionSql}
       ${sourceTypeSql}
       ${excludeSql}
+      ${excludeIdsSql}
       ${tagFilterSql}
       ${stateSql}
       ${archivedSql}
@@ -798,6 +822,8 @@ export async function chatWithRoteContext(params: {
   limit?: number;
   pendingPlan?: AiRetrievalPlan | null;
   clarificationAnswer?: string;
+  previousPlan?: AiRetrievalPlan | null;
+  excludeIds?: string[];
   history?: { role: 'user' | 'assistant'; content: string }[];
 }): Promise<{
   answer: string;
@@ -825,12 +851,71 @@ export async function chatWithRoteContext(params: {
   return { answer, sources, plan };
 }
 
+function createDefaultFilters(): import('../ai/retrievalPlan').AiRetrievalFilters {
+  return {
+    time: null,
+    tags: { include: [], exclude: [], match: 'any', unresolved: [], confidence: 1 },
+    semanticScope: [],
+    sourceTypes: ['rote', 'article'],
+    state: 'all',
+    archived: null,
+  };
+}
+
+export function sanitizePreviousPlan(
+  plan: any,
+  availableTags: string[]
+): AiRetrievalPlan | null {
+  if (!plan || typeof plan !== 'object') return null;
+  const tagSet = new Set(availableTags);
+  return {
+    originalMessage: String(plan.originalMessage || ''),
+    operations: Array.isArray(plan.operations) ? plan.operations : ['summarize'],
+    query: String(plan.query || ''),
+    filters: {
+      ...createDefaultFilters(),
+      ...(plan.filters || {}),
+      tags: {
+        include: Array.isArray(plan.filters?.tags?.include)
+          ? plan.filters.tags.include.filter((t: string) => tagSet.has(t))
+          : [],
+        exclude: Array.isArray(plan.filters?.tags?.exclude)
+          ? plan.filters.tags.exclude.filter((t: string) => tagSet.has(t))
+          : [],
+        match: plan.filters?.tags?.match === 'all' ? 'all' : 'any',
+        unresolved: [],
+        confidence: 1,
+      },
+      sourceTypes: Array.isArray(plan.filters?.sourceTypes)
+        ? plan.filters.sourceTypes.filter((t: string) => t === 'rote' || t === 'article')
+        : ['rote', 'article'],
+    },
+    comparison: null,
+    confidence: typeof plan.confidence === 'number' ? plan.confidence : 0.5,
+    needsClarification: false,
+    clarificationQuestion: null,
+    retrievalNeeded: plan.retrievalNeeded !== false,
+    pagination: plan.pagination === 'more' ? 'more' : null,
+    summary: Array.isArray(plan.summary) ? plan.summary : [],
+  };
+}
+
+export function sanitizeExcludeIds(ids: string[] | undefined): string[] | undefined {
+  if (!ids?.length) return undefined;
+  const sanitized = ids
+    .filter((id) => /^(rote|article):[a-zA-Z0-9_-]+$/.test(id))
+    .slice(0, 500);
+  return sanitized.length > 0 ? sanitized : undefined;
+}
+
 export async function prepareRoteChatContext(params: {
   ownerId: string;
   message: string;
   limit?: number;
   pendingPlan?: AiRetrievalPlan | null;
   clarificationAnswer?: string;
+  previousPlan?: AiRetrievalPlan | null;
+  excludeIds?: string[];
   history?: { role: 'user' | 'assistant'; content: string }[];
   onPlanGenerated?: (plan: AiRetrievalPlan) => Promise<void> | void;
   onPlanThinkingDelta?: (text: string) => Promise<void> | void;
@@ -846,12 +931,17 @@ export async function prepareRoteChatContext(params: {
     throw new Error('AI is disabled');
   }
 
+  const availableTags = await getUserRoteTags(params.ownerId);
+  const safePreviousPlan = sanitizePreviousPlan(params.previousPlan, availableTags);
+  const safeExcludeIds = sanitizeExcludeIds(params.excludeIds);
+
   const plan = await createRetrievalPlan({
     ownerId: params.ownerId,
     message: params.message,
     config,
     pendingPlan: params.pendingPlan,
     clarificationAnswer: params.clarificationAnswer,
+    previousPlan: safePreviousPlan,
     history: params.history,
     onThinkingDelta: params.onPlanThinkingDelta,
     onUsage: (usage) => logChatTokenUsage(params.ownerId, config.chat.model, usage),
@@ -872,6 +962,27 @@ export async function prepareRoteChatContext(params: {
     };
   }
 
+  // No-retrieval path: pure chat without note context
+  if (!plan.retrievalNeeded) {
+    const chatMessages: ChatMessage[] = [
+      {
+        role: 'system',
+        content:
+          'You are a helpful assistant. Answer naturally based on the conversation context.',
+      },
+    ];
+    if (params.history && params.history.length > 0) {
+      chatMessages.push(
+        ...params.history.map((m) => ({
+          role: (m.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+          content: m.content,
+        }))
+      );
+    }
+    chatMessages.push({ role: 'user', content: params.message });
+    return { config, messages: chatMessages, sources: [], plan };
+  }
+
   const baseSearch = async (filters: AiRetrievalFilters, limit: number) =>
     semanticSearch({
       query: plan.query,
@@ -883,6 +994,7 @@ export async function prepareRoteChatContext(params: {
       semanticScope: filters.semanticScope,
       state: filters.state,
       archived: filters.archived,
+      excludeIds: plan.pagination === 'more' ? safeExcludeIds : undefined,
     });
 
   const limit = params.limit || 8;

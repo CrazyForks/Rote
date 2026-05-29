@@ -94,6 +94,8 @@ export interface AiRetrievalPlan {
   needsClarification: boolean;
   clarificationQuestion: string | null;
   summary?: string[];
+  retrievalNeeded: boolean;
+  pagination: 'more' | null;
 }
 
 export interface AiClarification {
@@ -123,6 +125,8 @@ export type AiChatPayload = {
   limit?: number;
   pendingPlan?: AiRetrievalPlan | null;
   clarificationAnswer?: string;
+  previousPlan?: AiRetrievalPlan | null;
+  excludeIds?: string[];
   history?: { role: 'user' | 'assistant'; content: string }[];
 };
 

@@ -266,6 +266,8 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
         limit: body?.limit,
         pendingPlan: body?.pendingPlan,
         clarificationAnswer: body?.clarificationAnswer,
+        previousPlan: body?.previousPlan,
+        excludeIds: body?.excludeIds,
         history: body?.history,
         onPlanThinkingDelta: async (text) => {
           await writeSseEvent(stream, 'thinking', { phase: 'planning', text });
