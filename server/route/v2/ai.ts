@@ -27,10 +27,6 @@ import {
   semanticSearch,
   setIndexingPaused,
   logAiTokenUsage,
-  buildRetrievalContext,
-  NEEDS_MORE_TAG,
-  stripNeedsMoreTag,
-  rebuildMultiPassMessages,
 } from '../../utils/dbMethods';
 import { bodyTypeCheck, createResponse } from '../../utils/main';
 
@@ -244,6 +240,9 @@ aiRouter.post('/chat', authenticateJWT, bodyTypeCheck, async (c: HonoContext) =>
     limit: body?.limit,
     pendingPlan: body?.pendingPlan,
     clarificationAnswer: body?.clarificationAnswer,
+    previousPlan: body?.previousPlan,
+    excludeIds: body?.excludeIds,
+    history: body?.history,
   });
   return c.json(createResponse(result), 200);
 });
@@ -264,7 +263,7 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
   return streamSSE(c, async (stream) => {
     try {
       await stream.write(': connected\n\n');
-      const { config, messages, sources, plan, clarification } = await prepareRoteChatContext({
+      const { config, messages, sources, clarification } = await prepareRoteChatContext({
         ownerId: user.id,
         message,
         limit: body?.limit,
@@ -289,96 +288,39 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
 
       await writeSseEvent(stream, 'sources', { sources });
 
-      const MAX_STREAM_PASSES = 3;
-      const seenIds = new Set<string>(sources.map((s) => `${s.sourceType}:${s.sourceId}`));
-      let currentMessages = [...messages];
-      let allSources = [...sources];
-
-      for (let pass = 0; pass < MAX_STREAM_PASSES; pass++) {
-        let buffer = '';
-        let sentAny = false;
-        let lastUsage: any = null;
-
-        for await (const part of createChatCompletionStreamParts(config.chat, currentMessages, {
-          enableThinking: true,
-        })) {
-          if (part.type === 'reasoning') {
-            await writeSseEvent(stream, 'thinking', { phase: 'answer', text: part.text });
-          } else if (part.type === 'usage') {
-            lastUsage = part.usage;
-          } else {
-            buffer += part.text;
-            if (sentAny) {
-              // Already past the tag — stream directly
-              await writeSseEvent(stream, 'delta', { text: part.text });
-            } else if (buffer.length < NEEDS_MORE_TAG.length) {
-              // Buffer is shorter than the tag — check if it's still a valid prefix
-              if (!NEEDS_MORE_TAG.startsWith(buffer)) {
-                // Not a prefix of the tag — flush entire buffer and stream
-                await writeSseEvent(stream, 'delta', { text: buffer });
-                sentAny = true;
-              }
-              // else: still a valid prefix, keep buffering
-            } else if (buffer.startsWith(NEEDS_MORE_TAG)) {
-              // Full tag detected — don't flush (handled after loop)
-            } else {
-              // Buffer is long enough but doesn't match — flush
-              await writeSseEvent(stream, 'delta', { text: buffer });
-              sentAny = true;
-            }
-          }
+      let emittedText = false;
+      let lastUsage: any = null;
+      for await (const part of createChatCompletionStreamParts(config.chat, messages, {
+        enableThinking: true,
+      })) {
+        if (part.type === 'reasoning') {
+          await writeSseEvent(stream, 'thinking', { phase: 'answer', text: part.text });
+        } else if (part.type === 'usage') {
+          lastUsage = part.usage;
+        } else if (part.text) {
+          emittedText = true;
+          await writeSseEvent(stream, 'delta', { text: part.text });
         }
+      }
 
-        if (lastUsage) {
-          logAiTokenUsage({
-            userid: user.id,
-            model: config.chat.model,
-            type: 'chat',
-            promptTokens: lastUsage.prompt_tokens,
-            completionTokens: lastUsage.completion_tokens,
-            totalTokens: lastUsage.total_tokens,
-          });
-          await writeSseEvent(stream, 'usage', lastUsage);
-        }
-
-        const needsMore = !sentAny && buffer.startsWith(NEEDS_MORE_TAG);
-
-        if (!needsMore || pass === MAX_STREAM_PASSES - 1) {
-          // Final answer — send remaining buffer if not already sent
-          if (!sentAny) {
-            const remaining = stripNeedsMoreTag(buffer);
-            if (remaining) await writeSseEvent(stream, 'delta', { text: remaining });
-          }
-          break;
-        }
-
-        // More notes needed — re-fetch and continue
-        await writeSseEvent(stream, 'thinking', {
-          phase: 'retrieval',
-          text: 'Fetching more notes for deeper analysis...',
+      if (lastUsage) {
+        logAiTokenUsage({
+          userid: user.id,
+          model: config.chat.model,
+          type: 'chat',
+          promptTokens: lastUsage.prompt_tokens,
+          completionTokens: lastUsage.completion_tokens,
+          totalTokens: lastUsage.total_tokens,
         });
+        await writeSseEvent(stream, 'usage', lastUsage);
+      }
 
-        const excludeIds = Array.from(seenIds);
-        const { sources: newSources } = await buildRetrievalContext({
-          ownerId: user.id,
-          plan,
-          limit: body?.limit || 15,
-          excludeIds,
+      if (!emittedText) {
+        await writeSseEvent(stream, 'delta', {
+          text: sources.length
+            ? 'I found related Rote memory, but the model did not return a usable answer. Please try again or narrow the scope.'
+            : 'No matching Rote memory was found for this question, so I cannot answer from your notes yet.',
         });
-
-        if (!newSources.length) {
-          const remaining = stripNeedsMoreTag(buffer);
-          if (remaining) await writeSseEvent(stream, 'delta', { text: remaining });
-          break;
-        }
-
-        for (const s of newSources) {
-          seenIds.add(`${s.sourceType}:${s.sourceId}`);
-        }
-        allSources = [...allSources, ...newSources];
-        await writeSseEvent(stream, 'sources', { sources: newSources });
-
-        currentMessages = rebuildMultiPassMessages(currentMessages, plan, allSources, message);
       }
 
       await writeSseEvent(stream, 'done', {});
