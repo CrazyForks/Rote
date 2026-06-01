@@ -203,12 +203,14 @@ function AiMemoryPage() {
     );
   }
 
-  function mergeAgentState(state: Partial<AiAgentClientState>) {
+  function mergeAgentState(
+    state: Partial<AiAgentClientState>,
+    options: { replaceSeenSourceIds?: boolean } = {}
+  ) {
     const previous = agentStateRef.current;
-    const seenSourceIds = new Set([
-      ...(previous.seenSourceIds || []),
-      ...(state.seenSourceIds || []),
-    ]);
+    const seenSourceIds = options.replaceSeenSourceIds
+      ? new Set(state.seenSourceIds || [])
+      : new Set([...(previous.seenSourceIds || []), ...(state.seenSourceIds || [])]);
     agentStateRef.current = {
       ...previous,
       ...state,
@@ -325,8 +327,13 @@ function AiMemoryPage() {
             currentIsMoreRef.current = plan.pagination === 'more';
             if (!currentIsMoreRef.current) {
               seenSourceIdsRef.current.clear();
+              mergeAgentState(
+                { previousPlan: plan, seenSourceIds: [] },
+                { replaceSeenSourceIds: true }
+              );
+            } else {
+              mergeAgentState({ previousPlan: plan });
             }
-            mergeAgentState({ previousPlan: plan });
             const planTime = performance.now() - start;
             setMessages((prev) =>
               prev.map((message) =>
@@ -361,10 +368,13 @@ function AiMemoryPage() {
           },
           onSources: (sources) => {
             sources.forEach((s) => seenSourceIdsRef.current.add(`${s.sourceType}:${s.sourceId}`));
-            mergeAgentState({
-              lastSources: sources,
-              seenSourceIds: Array.from(seenSourceIdsRef.current),
-            });
+            mergeAgentState(
+              {
+                lastSources: sources,
+                seenSourceIds: Array.from(seenSourceIdsRef.current),
+              },
+              { replaceSeenSourceIds: !currentIsMoreRef.current }
+            );
             const sourcesTime = performance.now() - start;
             setMessages((prev) =>
               prev.map((message) =>
@@ -412,8 +422,14 @@ function AiMemoryPage() {
             );
           },
           onStatePatch: (state) => {
-            mergeAgentState(state);
-            if (state.seenSourceIds?.length) {
+            const nextState = currentIsMoreRef.current
+              ? state
+              : {
+                  ...state,
+                  seenSourceIds: Array.from(seenSourceIdsRef.current),
+                };
+            mergeAgentState(nextState, { replaceSeenSourceIds: !currentIsMoreRef.current });
+            if (currentIsMoreRef.current && state.seenSourceIds?.length) {
               state.seenSourceIds.forEach((id) => seenSourceIdsRef.current.add(id));
             }
           },

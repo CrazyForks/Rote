@@ -205,10 +205,16 @@ function normalizePreviousStatePlan(
   return sanitizePreviousPlan(ctx.request.previousPlan || ctx.state.previousPlan, availableTags);
 }
 
-function buildSeenSourceIds(ctx: RoteAgentContext, sources: SemanticSearchResult[]): string[] {
-  return Array.from(
-    new Set([...(ctx.state.seenSourceIds || []), ...sources.map((source) => sourceKey(source))])
-  ).slice(0, 500);
+function buildSeenSourceIds(
+  ctx: RoteAgentContext,
+  sources: SemanticSearchResult[],
+  includePrevious = true
+): string[] {
+  const previousIds = includePrevious ? ctx.state.seenSourceIds || [] : [];
+  return Array.from(new Set([...previousIds, ...sources.map((source) => sourceKey(source))])).slice(
+    0,
+    500
+  );
 }
 
 async function resolveSearchPlan(
@@ -277,10 +283,10 @@ async function executeSearchNotes(
     toolName: 'rote_search_notes',
     message: '正在检索相关记录',
   });
-  const excludeIds = sanitizeExcludeIds([
-    ...(ctx.request.excludeIds || []),
-    ...(ctx.state.seenSourceIds || []),
-  ]);
+  const shouldUseSeenSourceIds = plan.pagination === 'more';
+  const excludeIds = shouldUseSeenSourceIds
+    ? sanitizeExcludeIds([...(ctx.request.excludeIds || []), ...(ctx.state.seenSourceIds || [])])
+    : undefined;
   const limit = normalizeLimit(input.limit, ctx.request.limit || 8);
   const { sources, diagnostics } = await buildRetrievalContext({
     ownerId: ctx.userId,
@@ -292,7 +298,7 @@ async function executeSearchNotes(
   const registeredSources = formatRegisteredSources(registrations, ctx.policy.maxSourceChars);
   const statePatch = {
     previousPlan: plan,
-    seenSourceIds: buildSeenSourceIds(ctx, sources),
+    seenSourceIds: buildSeenSourceIds(ctx, sources, shouldUseSeenSourceIds),
     lastSources: sources,
   };
 
