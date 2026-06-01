@@ -266,7 +266,23 @@ export async function runRoteAgentStream(params: {
     });
 
     for (const toolCall of toolCalls) {
-      if (toolCallCount >= policy.maxToolCalls) break;
+      if (toolCallCount >= policy.maxToolCalls) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            status: 'skipped',
+            reason: 'tool_budget_exceeded',
+            message: `Tool call ${toolCall.function.name} was skipped because the agent reached the maximum tool call budget.`,
+          }),
+        });
+        await params.emit({
+          type: 'tool_finished',
+          toolName: toolCall.function.name,
+          summary: 'Skipped: tool budget exceeded',
+        });
+        continue;
+      }
       toolCallCount += 1;
 
       const tool = toolByName.get(toolCall.function.name);
