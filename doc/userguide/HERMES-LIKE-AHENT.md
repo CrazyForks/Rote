@@ -301,10 +301,11 @@ type RoteAgentEvent =
   | { type: "tool_finished"; toolName: string; summary?: string }
   | { type: "sources"; sources: SourceCard[] }
   | { type: "plan"; plan: AiRetrievalPlan }
-  | { type: "text_delta"; text: string }
+  | { type: "thinking"; phase: "planning" | "answer"; text: string }
+  | { type: "delta"; text: string }
   | { type: "state_patch"; state: Partial<RoteAgentClientState> }
   | { type: "usage"; usage: AiUsage }
-  | { type: "run_finished" }
+  | { type: "done" }
   | { type: "error"; message: string };
 ```
 
@@ -322,8 +323,8 @@ tool_progress: 正在检索相关笔记
 sources
 tool_finished
 progress: 正在组织回答
-text_delta
-run_finished
+delta
+done
 ```
 
 如果 provider 在 tool call 决策期间没有 token stream，服务端也要用 heartbeat/progress 告诉前端当前阶段仍在执行。heartbeat 只用于保持 UI 活着，不应该伪造回答内容。
