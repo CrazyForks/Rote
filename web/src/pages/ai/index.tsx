@@ -1,3 +1,4 @@
+import { AiMessageItem } from '@/components/ai/AiMessageItem';
 import { AiSourceList, getAiSourcePath } from '@/components/ai/AiSourceList';
 import NavBar from '@/components/layout/navBar';
 import { SoftBottom } from '@/components/others/SoftBottom';
@@ -6,21 +7,34 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
 import type { AiMemoryMessage } from '@/state/aiChat';
-import { aiChatMessagesAtom } from '@/state/aiChat';
+import {
+  aiChatMessagesAtom,
+  getCurrentAiAssistantSources,
+  getAiSourceKey,
+  getLatestAiAssistantPlan,
+  getSeenSourceIdsForActiveAiPlan,
+  mergeAiTokenUsage,
+  mergeAiTokenUsageByPhase,
+  sanitizeAiChatMessages,
+  settleAiMessageTimeline,
+} from '@/state/aiChat';
 import {
   aiAgentStream,
   getAiStatus,
   type AiAgentClientState,
   type AiAgentPhase,
+  type AiAgentToolProgressStatus,
 } from '@/utils/aiApi';
 import { post } from '@/utils/api';
 import { useAPIGet } from '@/utils/fetcher';
 import { useAtom } from 'jotai';
 import {
+  ArrowDown,
   ArrowDownLeft,
   ArrowUpRight,
   BrainCircuit,
   BrainCog,
+  Info,
   Loader,
   RefreshCw,
   Send,
@@ -45,11 +59,25 @@ import { toast } from 'sonner';
 type ActiveStream = {
   id: string;
   content: string;
+  targetContent: string;
   frame: number | null;
+  done: boolean;
+  drainResolver?: () => void;
+};
+
+type ActiveRun = {
+  assistantId: string;
+  controller: AbortController;
 };
 
 function createMessageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getStreamRevealSize(backlog: number) {
+  if (backlog > 1200) return 240;
+  if (backlog > 500) return 160;
+  return 80;
 }
 
 function buildSavedNoteContent(message: AiMemoryMessage, sourceTitle: string) {
@@ -63,8 +91,6 @@ function buildSavedNoteContent(message: AiMemoryMessage, sourceTitle: string) {
     : message.content;
 }
 
-import { AiMessageItem } from '@/components/ai/AiMessageItem';
-
 function AiMemoryPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const [messages, setMessages] = useAtom(aiChatMessagesAtom);
@@ -72,8 +98,12 @@ function AiMemoryPage() {
   const [isSending, setIsSending] = useState(false);
   const [savingMessageId, setSavingMessageId] = useState<string | null>(null);
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
+  const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const activeStreamRef = useRef<ActiveStream | null>(null);
+  const activeRunRef = useRef<ActiveRun | null>(null);
+  const isMountedRef = useRef(true);
+  const isSendingRef = useRef(false);
   const seenSourceIdsRef = useRef<Set<string>>(new Set());
   const agentStateRef = useRef<AiAgentClientState>({
     conversationId: createMessageId(),
@@ -104,10 +134,7 @@ function AiMemoryPage() {
     [t]
   );
 
-  const latestSources = useMemo(() => {
-    const assistantMessages = messages.filter((message) => message.role === 'assistant');
-    return assistantMessages[assistantMessages.length - 1]?.sources || [];
-  }, [messages]);
+  const visibleSources = useMemo(() => getCurrentAiAssistantSources(messages), [messages]);
   const pendingPlan = useMemo(() => {
     const lastMessage = messages[messages.length - 1];
     return lastMessage?.role === 'assistant' && lastMessage.pendingPlan
@@ -121,20 +148,98 @@ function AiMemoryPage() {
     status?.eligible === false ? t('status.unverified') : t('status.unavailable');
   const canSend = !isSending && !unavailable && input.trim().length > 0;
 
-  useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages, isSending]);
+  function getAgentPhaseLabel(phase: AiAgentPhase) {
+    return t(`timeline.phases.${phase}`);
+  }
 
-  useEffect(
-    () => () => {
+  function getToolStartedLabel(toolName: string) {
+    return t(`timeline.tools.${toolName}`, { defaultValue: toolName });
+  }
+
+  function getToolStatusLabel(status: AiAgentToolProgressStatus) {
+    return t(`timeline.toolStatus.${status}`);
+  }
+
+  function getToolFinishedLabel(toolName: string) {
+    return t(`timeline.toolDone.${toolName}`, {
+      defaultValue: t('timeline.toolDone.default'),
+    });
+  }
+
+  const scrollToMessageEnd = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    messageEndRef.current?.scrollIntoView({ block: 'end', behavior });
+  }, []);
+
+  const returnToBottom = useCallback(() => {
+    setIsAutoScrollPaused(false);
+    scrollToMessageEnd();
+  }, [scrollToMessageEnd]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollRoot = document.documentElement;
+      const distanceToBottom = scrollRoot.scrollHeight - window.innerHeight - window.scrollY;
+      setIsAutoScrollPaused(distanceToBottom > 160);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Keep the chat pinned while the user has not intentionally scrolled away.
+    // eslint-disable-next-line react-you-might-not-need-an-effect/no-event-handler
+    if (isAutoScrollPaused) return;
+    scrollToMessageEnd('auto');
+  }, [messages, isSending, isAutoScrollPaused, scrollToMessageEnd]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      activeRunRef.current?.controller.abort();
       if (activeStreamRef.current?.frame !== null && activeStreamRef.current?.frame !== undefined) {
         window.cancelAnimationFrame(activeStreamRef.current.frame);
       }
-    },
-    []
-  );
+    };
+  }, []);
+
+  useEffect(() => {
+    isSendingRef.current = isSending;
+  }, [isSending]);
+
+  useEffect(() => {
+    setMessages((prev) => sanitizeAiChatMessages(prev, t('messages.interrupted')));
+  }, [setMessages, t]);
+
+  useEffect(() => {
+    // Keep non-react refs aligned with persisted chat history after reload.
+    // eslint-disable-next-line react-you-might-not-need-an-effect/no-event-handler
+    if (isSending) return;
+
+    const seenSourceIds = getSeenSourceIdsForActiveAiPlan(messages);
+    seenSourceIdsRef.current = new Set(seenSourceIds);
+    agentStateRef.current = {
+      ...agentStateRef.current,
+      previousPlan: getLatestAiAssistantPlan(messages),
+      seenSourceIds,
+      stateVersion: 1,
+    };
+  }, [messages, isSending]);
 
   const clearChat = useCallback(() => {
+    activeRunRef.current?.controller.abort();
+    activeRunRef.current = null;
+    isSendingRef.current = false;
+    activeStreamRef.current = null;
+    currentIsMoreRef.current = false;
+    setIsAutoScrollPaused(false);
+    setIsSending(false);
     setMessages([]);
     seenSourceIdsRef.current.clear();
     agentStateRef.current = {
@@ -144,26 +249,83 @@ function AiMemoryPage() {
     };
   }, [setMessages]);
 
+  function isActiveRun(assistantId: string) {
+    return activeRunRef.current?.assistantId === assistantId;
+  }
+
+  function setMessagesForActiveRun(
+    assistantId: string,
+    updater: (messages: AiMemoryMessage[]) => AiMemoryMessage[]
+  ) {
+    if (!isMountedRef.current || !isActiveRun(assistantId)) return;
+    setMessages(updater);
+  }
+
   function flushStreamContent(assistantId: string) {
+    if (!isActiveRun(assistantId)) return;
     const stream = activeStreamRef.current;
     if (!stream || stream.id !== assistantId) return;
 
     stream.frame = null;
-    setMessages((prev) =>
+    const backlog = stream.targetContent.length - stream.content.length;
+    if (backlog > 0) {
+      stream.content = stream.targetContent.slice(
+        0,
+        stream.content.length + getStreamRevealSize(backlog)
+      );
+    }
+    setMessagesForActiveRun(assistantId, (prev) =>
       prev.map((message) =>
         message.id === assistantId ? { ...message, content: stream.content } : message
       )
     );
+
+    if (stream.content.length < stream.targetContent.length) {
+      stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
+      return;
+    }
+
+    if (stream.done) {
+      stream.drainResolver?.();
+      stream.drainResolver = undefined;
+    }
   }
 
   function queueStreamDelta(assistantId: string, text: string) {
+    if (!isActiveRun(assistantId)) return;
     const stream = activeStreamRef.current;
     if (!stream || stream.id !== assistantId) return;
 
-    stream.content += text;
+    stream.targetContent += text;
     if (stream.frame === null) {
       stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
     }
+  }
+
+  function drainStreamContent(assistantId: string): Promise<void> {
+    if (!isActiveRun(assistantId)) return Promise.resolve();
+    const stream = activeStreamRef.current;
+    if (!stream || stream.id !== assistantId) return Promise.resolve();
+
+    stream.done = true;
+    if (stream.content.length >= stream.targetContent.length) return Promise.resolve();
+
+    if (stream.frame === null) {
+      stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
+    }
+    return new Promise((resolve) => {
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        if (stream.drainResolver === finish) {
+          stream.drainResolver = undefined;
+        }
+        resolve();
+      };
+      stream.drainResolver = finish;
+      window.setTimeout(finish, 3000);
+    });
   }
 
   function updateTimeline(
@@ -173,12 +335,14 @@ function AiMemoryPage() {
       type: 'progress' | 'tool';
       phase?: AiAgentPhase;
       toolName?: string;
+      toolStatus?: AiAgentToolProgressStatus;
       message: string;
       status?: 'running' | 'done' | 'error';
     }
   ) {
+    if (!isActiveRun(assistantId)) return;
     const updatedAt = Date.now();
-    setMessages((prev) =>
+    setMessagesForActiveRun(assistantId, (prev) =>
       prev.map((message) => {
         if (message.id !== assistantId) return message;
         const current = message.timeline || [];
@@ -188,6 +352,7 @@ function AiMemoryPage() {
           type: item.type,
           phase: item.phase,
           toolName: item.toolName,
+          toolStatus: item.toolStatus,
           message: item.message,
           status: item.status || 'running',
           updatedAt,
@@ -203,12 +368,14 @@ function AiMemoryPage() {
     );
   }
 
-  function mergeAgentState(state: Partial<AiAgentClientState>) {
+  function mergeAgentState(
+    state: Partial<AiAgentClientState>,
+    options: { replaceSeenSourceIds?: boolean } = {}
+  ) {
     const previous = agentStateRef.current;
-    const seenSourceIds = new Set([
-      ...(previous.seenSourceIds || []),
-      ...(state.seenSourceIds || []),
-    ]);
+    const seenSourceIds = options.replaceSeenSourceIds
+      ? new Set(state.seenSourceIds || [])
+      : new Set([...(previous.seenSourceIds || []), ...(state.seenSourceIds || [])]);
     agentStateRef.current = {
       ...previous,
       ...state,
@@ -218,7 +385,7 @@ function AiMemoryPage() {
 
   async function sendMessage(value: string, options: { ignorePendingPlan?: boolean } = {}) {
     const question = value.trim();
-    if (!question || isSending || unavailable) return;
+    if (!question || isSendingRef.current || unavailable) return;
 
     const validHistory = messages
       .filter((m) => !m.error && !m.isStreaming && m.content)
@@ -227,13 +394,24 @@ function AiMemoryPage() {
 
     const activePendingPlan = options.ignorePendingPlan ? null : pendingPlan;
     setInput('');
+    setIsAutoScrollPaused(false);
+    isSendingRef.current = true;
     setIsSending(true);
+    currentIsMoreRef.current = false;
     const assistantId = createMessageId();
+    const controller = new AbortController();
     let receivedClarification = false;
     const start = performance.now();
     let firstTokenTime: number | undefined;
 
-    activeStreamRef.current = { id: assistantId, content: '', frame: null };
+    activeRunRef.current = { assistantId, controller };
+    activeStreamRef.current = {
+      id: assistantId,
+      content: '',
+      targetContent: '',
+      frame: null,
+      done: false,
+    };
     setMessages((prev) => [
       ...prev,
       {
@@ -252,8 +430,7 @@ function AiMemoryPage() {
 
     try {
       // Build previousPlan from the last assistant message
-      const lastAssistantForPlan = [...messages].reverse().find((m) => m.role === 'assistant');
-      const previousPlan = options.ignorePendingPlan ? null : lastAssistantForPlan?.plan || null;
+      const previousPlan = options.ignorePendingPlan ? null : getLatestAiAssistantPlan(messages);
 
       // Always pass accumulated seen source IDs (server decides whether to use them)
       const excludeIds =
@@ -262,7 +439,6 @@ function AiMemoryPage() {
       await aiAgentStream(
         {
           message: question,
-          limit: 8,
           pendingPlan: activePendingPlan,
           clarificationAnswer: activePendingPlan ? question : undefined,
           previousPlan,
@@ -272,28 +448,20 @@ function AiMemoryPage() {
             ...agentStateRef.current,
             previousPlan,
             seenSourceIds: excludeIds,
-            lastSources: latestSources,
             stateVersion: 1,
           },
         },
         {
           onRunStarted: (runId) => {
+            if (!isActiveRun(assistantId)) return;
             mergeAgentState({ conversationId: runId });
           },
-          onProgress: (phase, message) => {
+          onProgress: (phase) => {
             updateTimeline(assistantId, {
               id: `progress-${phase}`,
               type: 'progress',
               phase,
-              message,
-            });
-          },
-          onHeartbeat: (phase, message) => {
-            updateTimeline(assistantId, {
-              id: `progress-${phase}`,
-              type: 'progress',
-              phase,
-              message: message || '...',
+              message: getAgentPhaseLabel(phase),
             });
           },
           onToolStarted: (toolName) => {
@@ -301,34 +469,42 @@ function AiMemoryPage() {
               id: `tool-${toolName}`,
               type: 'tool',
               toolName,
-              message: toolName,
+              message: getToolStartedLabel(toolName),
             });
           },
-          onToolProgress: (toolName, message) => {
+          onToolProgress: (toolName, status) => {
             updateTimeline(assistantId, {
               id: `tool-${toolName}`,
               type: 'tool',
               toolName,
-              message,
+              toolStatus: status,
+              message: getToolStatusLabel(status),
             });
           },
-          onToolFinished: (toolName, summary) => {
+          onToolFinished: (toolName) => {
+            if (toolName === 'rote_search_notes') return;
             updateTimeline(assistantId, {
               id: `tool-${toolName}`,
               type: 'tool',
               toolName,
-              message: summary || toolName,
+              message: getToolFinishedLabel(toolName),
               status: 'done',
             });
           },
           onPlan: (plan) => {
+            if (!isActiveRun(assistantId)) return;
             currentIsMoreRef.current = plan.pagination === 'more';
             if (!currentIsMoreRef.current) {
               seenSourceIdsRef.current.clear();
+              mergeAgentState(
+                { previousPlan: plan, seenSourceIds: [] },
+                { replaceSeenSourceIds: true }
+              );
+            } else {
+              mergeAgentState({ previousPlan: plan });
             }
-            mergeAgentState({ previousPlan: plan });
             const planTime = performance.now() - start;
-            setMessages((prev) =>
+            setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? { ...message, plan, metrics: { ...message.metrics, planTime } }
@@ -337,36 +513,50 @@ function AiMemoryPage() {
             );
           },
           onClarification: (clarification) => {
+            if (!isActiveRun(assistantId)) return;
             receivedClarification = true;
             const planTime = performance.now() - start;
-            setMessages((prev) =>
+            setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
-                  ? {
-                      ...message,
-                      content: clarification.question,
-                      plan: clarification.pendingPlan,
-                      pendingPlan: clarification.pendingPlan,
-                      clarification: true,
-                      isStreaming: false,
-                      metrics: {
-                        ...message.metrics,
-                        planTime,
-                        totalTime: performance.now() - start,
+                  ? settleAiMessageTimeline(
+                      {
+                        ...message,
+                        content: clarification.question,
+                        plan: clarification.pendingPlan,
+                        pendingPlan: clarification.pendingPlan,
+                        clarification: true,
+                        isStreaming: false,
+                        metrics: {
+                          ...message.metrics,
+                          planTime,
+                          totalTime: performance.now() - start,
+                        },
                       },
-                    }
+                      'done'
+                    )
                   : message
               )
             );
           },
           onSources: (sources) => {
-            sources.forEach((s) => seenSourceIdsRef.current.add(`${s.sourceType}:${s.sourceId}`));
-            mergeAgentState({
-              lastSources: sources,
-              seenSourceIds: Array.from(seenSourceIdsRef.current),
-            });
+            if (!isActiveRun(assistantId)) return;
+            sources.forEach((source) => seenSourceIdsRef.current.add(getAiSourceKey(source)));
+            mergeAgentState(
+              {
+                seenSourceIds: Array.from(seenSourceIdsRef.current),
+              },
+              { replaceSeenSourceIds: !currentIsMoreRef.current }
+            );
             const sourcesTime = performance.now() - start;
-            setMessages((prev) =>
+            updateTimeline(assistantId, {
+              id: 'tool-rote_search_notes',
+              type: 'tool',
+              toolName: 'rote_search_notes',
+              message: t('timeline.sourcesFound', { count: sources.length }),
+              status: 'done',
+            });
+            setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? { ...message, sources, metrics: { ...message.metrics, sourcesTime } }
@@ -375,7 +565,7 @@ function AiMemoryPage() {
             );
           },
           onThinking: (phase, text) => {
-            setMessages((prev) =>
+            setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? {
@@ -390,9 +580,10 @@ function AiMemoryPage() {
             );
           },
           onDelta: (text) => {
+            if (!isActiveRun(assistantId)) return;
             if (!firstTokenTime) {
               firstTokenTime = performance.now() - start;
-              setMessages((prev) =>
+              setMessagesForActiveRun(assistantId, (prev) =>
                 prev.map((message) =>
                   message.id === assistantId
                     ? { ...message, metrics: { ...message.metrics, firstTokenTime } }
@@ -402,53 +593,82 @@ function AiMemoryPage() {
             }
             queueStreamDelta(assistantId, text);
           },
-          onUsage: (usage) => {
-            setMessages((prev) =>
+          onUsage: (usage, phase) => {
+            setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
-                  ? { ...message, metrics: { ...message.metrics, usage } }
+                  ? {
+                      ...message,
+                      metrics: {
+                        ...message.metrics,
+                        usage: mergeAiTokenUsage(message.metrics?.usage, usage),
+                        usageByPhase: mergeAiTokenUsageByPhase(
+                          message.metrics?.usageByPhase,
+                          phase,
+                          usage
+                        ),
+                      },
+                    }
                   : message
               )
             );
           },
           onStatePatch: (state) => {
-            mergeAgentState(state);
-            if (state.seenSourceIds?.length) {
+            if (!isActiveRun(assistantId)) return;
+            const nextState = currentIsMoreRef.current
+              ? state
+              : {
+                  ...state,
+                  seenSourceIds: Array.from(seenSourceIdsRef.current),
+                };
+            mergeAgentState(nextState, { replaceSeenSourceIds: !currentIsMoreRef.current });
+            if (currentIsMoreRef.current && state.seenSourceIds?.length) {
               state.seenSourceIds.forEach((id) => seenSourceIdsRef.current.add(id));
             }
           },
-        }
+        },
+        controller.signal
       );
       if (!receivedClarification) {
-        flushStreamContent(assistantId);
+        await drainStreamContent(assistantId);
       }
-      setMessages((prev) => {
+      setMessagesForActiveRun(assistantId, (prev) => {
         const totalTime = performance.now() - start;
         return prev.map((message) =>
           message.id === assistantId
-            ? {
-                ...message,
-                isStreaming: false,
-                pendingPlan: receivedClarification ? message.pendingPlan : undefined,
-                metrics: { ...message.metrics, totalTime },
-              }
+            ? settleAiMessageTimeline(
+                {
+                  ...message,
+                  isStreaming: false,
+                  pendingPlan: receivedClarification ? message.pendingPlan : undefined,
+                  metrics: { ...message.metrics, totalTime },
+                },
+                'done'
+              )
             : message
         );
       });
     } catch (error: any) {
+      const aborted = controller.signal.aborted || error?.name === 'AbortError';
+      if (aborted) return;
+
       const fallbackMessage =
         error?.response?.data?.message || error?.message || t('messages.askFailed');
-      const streamContent = activeStreamRef.current?.content || '';
+      const streamContent =
+        activeStreamRef.current?.targetContent || activeStreamRef.current?.content || '';
       flushStreamContent(assistantId);
-      setMessages((prev) =>
+      setMessagesForActiveRun(assistantId, (prev) =>
         prev.map((message) =>
           message.id === assistantId
-            ? {
-                ...message,
-                content: streamContent || fallbackMessage,
-                error: streamContent ? message.error : true,
-                isStreaming: false,
-              }
+            ? settleAiMessageTimeline(
+                {
+                  ...message,
+                  content: streamContent || fallbackMessage,
+                  error: streamContent ? message.error : true,
+                  isStreaming: false,
+                },
+                'error'
+              )
             : message
         )
       );
@@ -462,7 +682,13 @@ function AiMemoryPage() {
       if (activeStreamRef.current?.id === assistantId) {
         activeStreamRef.current = null;
       }
-      setIsSending(false);
+      if (activeRunRef.current?.assistantId === assistantId) {
+        activeRunRef.current = null;
+      }
+      if (isMountedRef.current) {
+        isSendingRef.current = false;
+        setIsSending(false);
+      }
     }
   }
 
@@ -507,22 +733,25 @@ function AiMemoryPage() {
   }
 
   const StatusBlock = () => (
-    <div className="flex items-center justify-between border-b p-4">
-      <div className="flex items-center gap-2 text-sm font-semibold">
+    <div className="flex min-w-0 items-center justify-between gap-3 border-b p-4">
+      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
         {status?.available ? (
-          <ToggleRight className="size-4" />
+          <ToggleRight className="size-4 shrink-0" />
         ) : (
-          <ToggleLeft className="text-error size-4" />
+          <ToggleLeft className="text-error size-4 shrink-0" />
         )}
-        {t('status.title')}
+        <span className="min-w-0 truncate">{t('status.title')}</span>
       </div>
-      <div className="text-info flex items-center gap-2 text-xs">
+      <div className="text-info flex min-w-0 items-center justify-end gap-2 text-right text-xs">
         {isStatusLoading ? (
-          t('status.checking')
+          <span className="min-w-0 truncate">{t('status.checking')}</span>
         ) : status?.available ? (
-          t('status.ready')
+          <span className="min-w-0 truncate">{t('status.ready')}</span>
         ) : (
-          <button className="hover:text-theme duration-200" onClick={() => refreshStatus()}>
+          <button
+            className="hover:text-theme min-w-0 truncate duration-200"
+            onClick={() => refreshStatus()}
+          >
             {unavailableText}
           </button>
         )}
@@ -535,6 +764,13 @@ function AiMemoryPage() {
     <div className="divide-y">
       <StatusBlock />
       <div className="p-4">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+          <Info className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">{t('privacy.title')}</span>
+        </div>
+        <p className="text-info mt-2 text-xs leading-5">{t('privacy.description')}</p>
+      </div>
+      <div className="p-4">
         <div className="text-sm font-semibold">{t('quick.title')}</div>
         <div className="relative mt-3 flex flex-col gap-2 pb-6">
           {(isPromptsExpanded ? quickPrompts : quickPrompts.slice(0, 4)).map((prompt) => (
@@ -542,7 +778,7 @@ function AiMemoryPage() {
               key={prompt}
               type="button"
               variant="link"
-              className="h-auto cursor-pointer justify-start p-0 text-sm font-normal whitespace-normal underline"
+              className="h-auto w-full min-w-0 cursor-pointer justify-start p-0 text-left text-sm font-normal break-all whitespace-normal underline"
               disabled={isSending || unavailable}
               onClick={() => sendMessage(prompt, { ignorePendingPlan: true })}
             >
@@ -571,7 +807,7 @@ function AiMemoryPage() {
       </div>
       <ScrollArea className="max-h-[45dvh]">
         <AiSourceList
-          sources={latestSources}
+          sources={visibleSources}
           title={t('sources.title')}
           emptyLabel={t('sources.empty')}
         />
@@ -583,9 +819,9 @@ function AiMemoryPage() {
     <ContainerWithSideBar
       sidebar={<SideBar />}
       sidebarHeader={
-        <div className="flex items-center gap-2 p-3 text-lg font-semibold">
-          <BrainCog className="size-5" />
-          {t('sideBarTitle')}
+        <div className="flex min-w-0 items-center gap-2 p-3 text-lg font-semibold">
+          <BrainCog className="size-5 shrink-0" />
+          <span className="min-w-0 truncate">{t('sideBarTitle')}</span>
         </div>
       }
       hideSidebarToggleButton={true}
@@ -666,6 +902,20 @@ function AiMemoryPage() {
           )}
           <div ref={messageEndRef} className="h-24 shrink-0" />
         </div>
+
+        {isAutoScrollPaused && messages.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="fixed right-4 bottom-28 z-20 size-8 rounded-full shadow-sm sm:bottom-16"
+            onClick={returnToBottom}
+            aria-label={t('backToBottom')}
+            title={t('backToBottom')}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        )}
 
         <form
           className="bg-background sticky bottom-16 z-10 border-t px-3 py-1 sm:bottom-0"

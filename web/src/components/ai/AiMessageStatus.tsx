@@ -1,5 +1,6 @@
 import type { AiMemoryMessage } from '@/state/aiChat';
-import { Brain, Check, Loader, SlidersHorizontal, Workflow } from 'lucide-react';
+import type { AiRetrievalPlan, AiThinkingPhase } from '@/utils/aiApi';
+import { Brain, SlidersHorizontal, Workflow } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -12,9 +13,70 @@ export function AiStatusTitle({ children, icon }: { children: ReactNode; icon?: 
   );
 }
 
+function buildScopeSummary(plan: AiRetrievalPlan, t: ReturnType<typeof useTranslation>['t']) {
+  const summary: string[] = [];
+  if (plan.pagination === 'more') summary.push(t('scope.paginationMore'));
+
+  const range = plan.filters.time?.normalizedRange;
+  if (range) summary.push(t('scope.time', { label: range.label }));
+
+  if (plan.filters.tags.include.length) {
+    summary.push(
+      t('scope.tags', { tags: plan.filters.tags.include.map((tag) => `#${tag}`).join('、') })
+    );
+  }
+
+  if (plan.filters.tags.exclude.length) {
+    summary.push(
+      t('scope.excludeTags', {
+        tags: plan.filters.tags.exclude.map((tag) => `#${tag}`).join('、'),
+      })
+    );
+  }
+
+  if (plan.filters.semanticScope.length) {
+    summary.push(t('scope.semanticScope', { keywords: plan.filters.semanticScope.join('、') }));
+  }
+
+  const sourceTypes = plan.filters.sourceTypes;
+  if (sourceTypes.length === 1) {
+    summary.push(
+      sourceTypes[0] === 'rote' ? t('scope.sourceTypes.rote') : t('scope.sourceTypes.article')
+    );
+  } else {
+    summary.push(t('scope.sourceTypes.all'));
+  }
+
+  if (plan.filters.state === 'public') {
+    summary.push(t('scope.visibility.public'));
+  } else if (plan.filters.state === 'private') {
+    summary.push(t('scope.visibility.private'));
+  } else {
+    summary.push(t('scope.visibility.all'));
+  }
+
+  if (plan.filters.archived === true) {
+    summary.push(t('scope.archive.archived'));
+  } else if (plan.filters.archived === false) {
+    summary.push(t('scope.archive.active'));
+  } else if (plan.filters.archivedScopeSpecified) {
+    summary.push(t('scope.archive.all'));
+  }
+
+  if (plan.comparison) {
+    summary.push(
+      t('scope.comparison', {
+        groups: plan.comparison.groups.map((group) => group.label).join(' / '),
+      })
+    );
+  }
+
+  return summary;
+}
+
 export function ScopeSummary({ message, title }: { message: AiMemoryMessage; title: string }) {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
-  const summary = message.plan?.summary || [];
+  const summary = message.plan ? buildScopeSummary(message.plan, t) : [];
 
   if (summary.length > 0) {
     return (
@@ -31,19 +93,6 @@ export function ScopeSummary({ message, title }: { message: AiMemoryMessage; tit
     );
   }
 
-  if (message.isStreaming && message.plan) {
-    return (
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <Loader className="size-3 animate-spin" />
-        <span className="text-muted-foreground animate-pulse font-medium">
-          {message.plan.query
-            ? `${t('messages.searching')}: ${message.plan.query}`
-            : t('messages.searching')}
-        </span>
-      </div>
-    );
-  }
-
   return null;
 }
 
@@ -51,29 +100,28 @@ export function AgentTimeline({ message, title }: { message: AiMemoryMessage; ti
   const items = message.timeline || [];
   if (items.length === 0) return null;
 
-  const visibleItems = items.slice(-5);
+  const runningItems = items.filter((item) => item.status === 'running');
+  if (runningItems.length === 0) return null;
+
+  const currentItem = [...runningItems].sort(
+    (first, second) => second.updatedAt - first.updatedAt
+  )[0];
+
+  if (!currentItem) return null;
+
   return (
-    <div className="space-y-0.5 text-xs leading-5">
-      <div className="flex items-center gap-1.5">
-        <AiStatusTitle icon={<Workflow className="size-3 shrink-0" />}>{title}:</AiStatusTitle>
-      </div>
-      <div className="space-y-0.5">
-        {visibleItems.map((item) => (
-          <div key={item.id} className="text-muted-foreground flex min-w-0 items-center gap-1.5">
-            {item.status === 'done' ? (
-              <Check className="size-3 shrink-0" />
-            ) : (
-              <Loader className="size-3 shrink-0 animate-spin" />
-            )}
-            <span className="min-w-0 truncate">{item.message}</span>
-          </div>
-        ))}
-      </div>
+    <div className="flex min-w-0 items-center gap-1.5 text-xs leading-5">
+      <AiStatusTitle icon={<Workflow className="size-3 shrink-0" />}>{title}:</AiStatusTitle>
+      <span
+        className={`text-muted-foreground min-w-0 flex-1 truncate ${
+          currentItem.status === 'running' ? 'animate-pulse' : ''
+        }`}
+      >
+        {currentItem.message}
+      </span>
     </div>
   );
 }
-
-type ThinkingPhase = 'planning' | 'answer';
 
 export function ThinkingPendingLine({ title }: { title: string }) {
   return (
@@ -94,7 +142,7 @@ export function ThinkingTraceEntry({
   isStreaming,
   onToggle,
 }: {
-  phase: ThinkingPhase;
+  phase: AiThinkingPhase;
   text: string;
   title: string;
   isExpanded: boolean;
@@ -103,6 +151,7 @@ export function ThinkingTraceEntry({
 }) {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const lineRef = useRef<HTMLDivElement>(null);
+  const expandedRef = useRef<HTMLDivElement>(null);
   const inlineText = useMemo(() => text.replace(/\s+/g, ' ').trim(), [text]);
 
   useEffect(() => {
@@ -111,6 +160,13 @@ export function ThinkingTraceEntry({
     if (!line) return;
     line.scrollLeft = line.scrollWidth;
   }, [inlineText, isExpanded]);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    const expanded = expandedRef.current;
+    if (!expanded) return;
+    expanded.scrollTop = expanded.scrollHeight;
+  }, [text, isExpanded]);
 
   return (
     <div className="min-w-0">
@@ -136,21 +192,20 @@ export function ThinkingTraceEntry({
           </div>
         )}
         {isExpanded && <div className="min-w-0 flex-1" />}
-        {!isStreaming && (
-          <button
-            type="button"
-            aria-expanded={isExpanded}
-            aria-controls={`thinking-trace-${phase}`}
-            className="text-muted-foreground hover:text-foreground shrink-0 whitespace-nowrap opacity-70 transition-colors"
-            onClick={onToggle}
-          >
-            {isExpanded ? t('thinkingTrace.collapse') : t('thinkingTrace.expand')}
-          </button>
-        )}
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={`thinking-trace-${phase}`}
+          className="text-muted-foreground hover:text-foreground shrink-0 whitespace-nowrap opacity-70 transition-colors"
+          onClick={onToggle}
+        >
+          {isExpanded ? t('thinkingTrace.collapse') : t('thinkingTrace.expand')}
+        </button>
       </div>
-      {!isStreaming && isExpanded && (
+      {isExpanded && (
         <div
           id={`thinking-trace-${phase}`}
+          ref={expandedRef}
           className="text-muted-foreground mt-1 max-h-36 overflow-y-auto text-xs leading-5 whitespace-pre-wrap"
         >
           {text}
@@ -162,37 +217,31 @@ export function ThinkingTraceEntry({
 
 export function ThinkingTrace({ message }: { message: AiMemoryMessage }) {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
-  const [expandedPhases, setExpandedPhases] = useState<Record<ThinkingPhase, boolean>>({
-    planning: false,
+  const [expandedPhases, setExpandedPhases] = useState<Record<AiThinkingPhase, boolean>>({
+    route_decision: false,
+    evidence_decision: false,
+    retrieval_planning: false,
     answer: false,
   });
   const entries = [
-    { phase: 'planning' as const, text: message.thinking?.planning || '' },
+    { phase: 'route_decision' as const, text: message.thinking?.route_decision || '' },
+    {
+      phase: 'retrieval_planning' as const,
+      text: message.thinking?.retrieval_planning || '',
+    },
+    { phase: 'evidence_decision' as const, text: message.thinking?.evidence_decision || '' },
     { phase: 'answer' as const, text: message.thinking?.answer || '' },
   ].filter((entry) => entry.text.trim().length > 0);
-  const hasContent = message.content.trim().length > 0;
   const isStreaming = message.isStreaming || false;
-  const hasAnswerThinking = entries.some((entry) => entry.phase === 'answer');
-  const shouldShowPendingAnswer =
-    isStreaming && !hasContent && !hasAnswerThinking && (entries.length === 0 || !!message.plan);
 
   if (entries.length === 0) {
-    if (shouldShowPendingAnswer) {
-      return (
-        <div className="space-y-1">
-          <ThinkingPendingLine title={t('thinkingTrace.answer')} />
-        </div>
-      );
-    }
-
     return null;
   }
 
   return (
     <div className="space-y-1">
       {entries.map((entry) => {
-        const title =
-          entry.phase === 'planning' ? t('thinkingTrace.planning') : t('thinkingTrace.answer');
+        const title = t(`thinkingTrace.${entry.phase}`);
         const isExpanded = expandedPhases[entry.phase] || false;
 
         return (
@@ -212,7 +261,6 @@ export function ThinkingTrace({ message }: { message: AiMemoryMessage }) {
           />
         );
       })}
-      {shouldShowPendingAnswer && <ThinkingPendingLine title={t('thinkingTrace.answer')} />}
     </div>
   );
 }

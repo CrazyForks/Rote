@@ -17,7 +17,6 @@ import {
   createRetrievalPlan,
   getUserRoteTags,
   type AiArchivedScope,
-  type AiRetrievalOperation,
   type AiRetrievalPlan,
   type AiTaskStatusScope,
   type PlannerOutput,
@@ -33,7 +32,6 @@ import type {
 type SearchNotesInput = {
   query?: string;
   intentHint?: 'new_search' | 'more' | 'refine' | 'review';
-  operations?: AiRetrievalOperation[];
   tags?: { include?: string[]; exclude?: string[] };
   semanticScope?: string[];
   timeExpression?: string;
@@ -44,15 +42,6 @@ type SearchNotesInput = {
 };
 
 const VALID_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
-const VALID_OPERATIONS = new Set<AiRetrievalOperation>([
-  'summarize',
-  'compare',
-  'timeline',
-  'find_open_loops',
-  'analyze_mood',
-  'analyze_stress',
-  'analyze_personality',
-]);
 const VALID_ARCHIVED_SCOPES = new Set<AiArchivedScope>([
   'active',
   'archived',
@@ -65,7 +54,6 @@ const VALID_TASK_STATUS_SCOPES = new Set<AiTaskStatusScope>([
   'all',
   'unspecified',
 ]);
-
 function asRecord(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -86,7 +74,11 @@ function uniqueStrings(value: unknown, limit = 20): string[] {
 function normalizeLimit(value: unknown, fallback = 8): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
-  return Math.min(Math.max(Math.floor(numeric), 1), 30);
+  return Math.min(Math.max(Math.floor(numeric), 1), 50);
+}
+
+function resolveAgentFinalSourceLimit(requestedLimit?: number): number {
+  return normalizeLimit(requestedLimit, 15);
 }
 
 function sourceKey(source: SemanticSearchResult): string {
@@ -137,11 +129,6 @@ function parseSearchNotesInput(args: unknown): SearchNotesInput {
   const sourceTypes = uniqueStrings(raw.sourceTypes)
     .filter((type): type is AiSourceType => VALID_SOURCE_TYPES.has(type as AiSourceType))
     .slice(0, 2);
-  const operations = uniqueStrings(raw.operations)
-    .filter((operation): operation is AiRetrievalOperation =>
-      VALID_OPERATIONS.has(operation as AiRetrievalOperation)
-    )
-    .slice(0, 4);
   return {
     query: typeof raw.query === 'string' ? raw.query.trim() : undefined,
     intentHint:
@@ -151,7 +138,6 @@ function parseSearchNotesInput(args: unknown): SearchNotesInput {
       raw.intentHint === 'new_search'
         ? raw.intentHint
         : undefined,
-    operations: operations.length ? operations : undefined,
     tags:
       tags.include || tags.exclude
         ? {
@@ -168,13 +154,12 @@ function parseSearchNotesInput(args: unknown): SearchNotesInput {
       ? (raw.taskStatusScope as AiTaskStatusScope)
       : undefined,
     sourceTypes: sourceTypes.length ? sourceTypes : undefined,
-    limit: normalizeLimit(raw.limit),
+    limit: raw.limit === undefined ? undefined : normalizeLimit(raw.limit),
   };
 }
 
 function hasStructuredSearchPatch(input: SearchNotesInput): boolean {
   return Boolean(
-    input.operations?.length ||
     input.tags?.include?.length ||
     input.tags?.exclude?.length ||
     input.semanticScope?.length ||
@@ -185,10 +170,23 @@ function hasStructuredSearchPatch(input: SearchNotesInput): boolean {
   );
 }
 
-function buildPatchFromSearchInput(input: SearchNotesInput): PlannerOutput['patch'] {
+function buildPatchFromSearchInput(
+  input: SearchNotesInput,
+  fallbackQuery: string
+): PlannerOutput['patch'] {
+  const toolQuery = input.query?.trim() || '';
+  const hasHardScope = Boolean(
+    input.tags?.include?.length ||
+    input.tags?.exclude?.length ||
+    input.timeExpression ||
+    input.archivedScope ||
+    input.taskStatusScope ||
+    input.sourceTypes?.length
+  );
+  const hasSoftScope = Boolean(input.semanticScope?.length);
+  const query = toolQuery || (hasHardScope && !hasSoftScope ? '' : fallbackQuery);
   return {
-    query: input.query || '',
-    operations: input.operations,
+    query,
     tags: input.tags,
     semanticScope: input.semanticScope,
     timeExpression: input.timeExpression,
@@ -205,10 +203,16 @@ function normalizePreviousStatePlan(
   return sanitizePreviousPlan(ctx.request.previousPlan || ctx.state.previousPlan, availableTags);
 }
 
-function buildSeenSourceIds(ctx: RoteAgentContext, sources: SemanticSearchResult[]): string[] {
-  return Array.from(
-    new Set([...(ctx.state.seenSourceIds || []), ...sources.map((source) => sourceKey(source))])
-  ).slice(0, 500);
+function buildSeenSourceIds(
+  ctx: RoteAgentContext,
+  sources: SemanticSearchResult[],
+  includePrevious = true
+): string[] {
+  const previousIds = includePrevious ? ctx.state.seenSourceIds || [] : [];
+  return Array.from(new Set([...previousIds, ...sources.map((source) => sourceKey(source))])).slice(
+    0,
+    500
+  );
 }
 
 async function resolveSearchPlan(
@@ -216,12 +220,12 @@ async function resolveSearchPlan(
   ctx: RoteAgentContext
 ): Promise<AiRetrievalPlan> {
   const availableTags = await getUserRoteTags(ctx.userId);
+  const fallbackQuery = ctx.request.message?.trim() || '';
   if (hasStructuredSearchPatch(input)) {
-    return buildNewSearchPlan(buildPatchFromSearchInput(input), availableTags);
+    return buildNewSearchPlan(buildPatchFromSearchInput(input, fallbackQuery), availableTags);
   }
 
-  const query =
-    input.query || (input.intentHint === 'more' ? '多来几条' : '') || ctx.request.message || '';
+  const query = input.query || (input.intentHint === 'more' ? '多来几条' : '') || fallbackQuery;
   const previousPlan = normalizePreviousStatePlan(ctx, availableTags);
 
   return createRetrievalPlan({
@@ -232,16 +236,18 @@ async function resolveSearchPlan(
     clarificationAnswer: ctx.request.clarificationAnswer,
     previousPlan,
     history: ctx.request.history,
-    onThinkingDelta: (text) => ctx.emit({ type: 'thinking', phase: 'planning', text }),
-    onUsage: (usage) =>
-      logAiTokenUsage({
+    onThinkingDelta: (text) => ctx.emit({ type: 'thinking', phase: 'retrieval_planning', text }),
+    onUsage: async (usage) => {
+      await logAiTokenUsage({
         userid: ctx.userId,
         model: ctx.config.chat.model,
         type: 'chat',
         promptTokens: usage.prompt_tokens,
         completionTokens: usage.completion_tokens,
         totalTokens: usage.total_tokens,
-      }),
+      });
+      await ctx.emit({ type: 'usage', phase: 'planning', usage });
+    },
   });
 }
 
@@ -253,7 +259,7 @@ async function executeSearchNotes(
   await ctx.emit({
     type: 'tool_progress',
     toolName: 'rote_search_notes',
-    message: '正在确定查询范围',
+    status: 'determining_scope',
   });
   const plan = await resolveSearchPlan(input, ctx);
 
@@ -275,25 +281,26 @@ async function executeSearchNotes(
   await ctx.emit({
     type: 'tool_progress',
     toolName: 'rote_search_notes',
-    message: '正在检索相关记录',
+    status: 'retrieving_sources',
   });
-  const excludeIds = sanitizeExcludeIds([
-    ...(ctx.request.excludeIds || []),
-    ...(ctx.state.seenSourceIds || []),
-  ]);
-  const limit = normalizeLimit(input.limit, ctx.request.limit || 8);
+  const shouldUseSeenSourceIds = plan.pagination === 'more';
+  const excludeIds = shouldUseSeenSourceIds
+    ? sanitizeExcludeIds([...(ctx.request.excludeIds || []), ...(ctx.state.seenSourceIds || [])])
+    : undefined;
+  const requestedLimit = input.limit ?? ctx.request.limit;
+  const sourceLimit = resolveAgentFinalSourceLimit(requestedLimit);
   const { sources, diagnostics } = await buildRetrievalContext({
     ownerId: ctx.userId,
     plan,
-    limit,
+    limit: sourceLimit,
+    sourceLimit,
     excludeIds,
   });
   const registrations = ctx.registerSources(sources);
   const registeredSources = formatRegisteredSources(registrations, ctx.policy.maxSourceChars);
   const statePatch = {
     previousPlan: plan,
-    seenSourceIds: buildSeenSourceIds(ctx, sources),
-    lastSources: sources,
+    seenSourceIds: buildSeenSourceIds(ctx, sources, shouldUseSeenSourceIds),
   };
 
   return {
@@ -301,6 +308,11 @@ async function executeSearchNotes(
       `Found ${sources.length} source(s).`,
       `Sample status: ${diagnostics.sampleStatus}.`,
     ],
+    displaySummary: {
+      count: sources.length,
+      sampleStatus: diagnostics.sampleStatus,
+      sourceTypes: Array.from(new Set(sources.map((s) => s.sourceType))),
+    },
     sources,
     plan,
     statePatch,
@@ -308,7 +320,6 @@ async function executeSearchNotes(
       status: 'ok',
       plan: {
         query: plan.query,
-        operations: plan.operations,
         summary: plan.summary || [],
         sampleStatus: diagnostics.sampleStatus,
         candidateCount: diagnostics.candidateCount,
@@ -389,7 +400,7 @@ async function executeGetNote(args: unknown, ctx: RoteAgentContext): Promise<Rot
   const sourceId = typeof raw.sourceId === 'string' ? raw.sourceId.trim() : '';
   if (!sourceId) throw new Error('sourceId is required');
 
-  await ctx.emit({ type: 'tool_progress', toolName: 'rote_get_note', message: '正在读取记录内容' });
+  await ctx.emit({ type: 'tool_progress', toolName: 'rote_get_note', status: 'reading_source' });
   const { source, content } = await loadOwnedSource(ctx, sourceType, sourceId);
   const registration = ctx.registerSources([source]);
   const maxContentLength = Math.min(ctx.policy.maxSourceChars, 8000);
@@ -399,7 +410,6 @@ async function executeGetNote(args: unknown, ctx: RoteAgentContext): Promise<Rot
     sources: [source],
     statePatch: {
       seenSourceIds: buildSeenSourceIds(ctx, [source]),
-      lastSources: [source],
     },
     modelContent: toModelContent({
       status: 'ok',
@@ -424,7 +434,7 @@ async function executeFindRelatedNotes(
   await ctx.emit({
     type: 'tool_progress',
     toolName: 'rote_find_related_notes',
-    message: '正在查找相关记录',
+    status: 'finding_related',
   });
   const { content } = await loadOwnedSource(ctx, sourceType, sourceId);
   const sources = await semanticSearch({
@@ -441,7 +451,6 @@ async function executeFindRelatedNotes(
     sources,
     statePatch: {
       seenSourceIds: buildSeenSourceIds(ctx, sources),
-      lastSources: sources,
     },
     modelContent: toModelContent({
       status: 'ok',
@@ -451,7 +460,7 @@ async function executeFindRelatedNotes(
 }
 
 async function executeGetTags(_args: unknown, ctx: RoteAgentContext): Promise<RoteAgentToolResult> {
-  await ctx.emit({ type: 'tool_progress', toolName: 'rote_get_tags', message: '正在读取标签' });
+  await ctx.emit({ type: 'tool_progress', toolName: 'rote_get_tags', status: 'loading_tags' });
   const rows = await db
     .select({ tags: rotes.tags })
     .from(rotes)
@@ -517,15 +526,12 @@ export function getNativeRoteTools(): RoteAgentTool[] {
           parameters: {
             type: 'object',
             properties: {
-              query: { type: 'string' },
-              intentHint: { type: 'string', enum: ['new_search', 'more', 'refine', 'review'] },
-              operations: {
-                type: 'array',
-                items: {
-                  type: 'string',
-                  enum: Array.from(VALID_OPERATIONS),
-                },
+              query: {
+                type: 'string',
+                description:
+                  'Semantic evidence query. For broad analysis, write a broad useful query; leave empty only for pure hard-filter browsing.',
               },
+              intentHint: { type: 'string', enum: ['new_search', 'more', 'refine', 'review'] },
               tags: {
                 type: 'object',
                 properties: {
@@ -533,7 +539,12 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                   exclude: { type: 'array', items: { type: 'string' } },
                 },
               },
-              semanticScope: { type: 'array', items: { type: 'string' } },
+              semanticScope: {
+                type: 'array',
+                items: { type: 'string' },
+                description:
+                  'Soft topic keywords for semantic retrieval. Use for themes and patterns that are not verified tags.',
+              },
               timeExpression: { type: 'string' },
               archivedScope: {
                 type: 'string',
@@ -551,7 +562,11 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                 type: 'array',
                 items: { type: 'string', enum: ['rote', 'article'] },
               },
-              limit: { type: 'number' },
+              limit: {
+                type: 'number',
+                description:
+                  'Final source count to return. Choose a larger value for broad pattern analysis and a smaller value for focused lookup.',
+              },
             },
             required: ['query'],
           },

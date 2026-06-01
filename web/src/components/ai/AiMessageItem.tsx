@@ -5,14 +5,25 @@ import {
   ThinkingTrace,
 } from '@/components/ai/AiMessageStatus';
 import { cleanSourceText, getAiSourcePath } from '@/components/ai/AiSourceList';
+import AiStreamingMarkdown from '@/components/ai/AiStreamingMarkdown';
 import { Button } from '@/components/ui/button';
 import type { AiMemoryMessage } from '@/state/aiChat';
 import { Link as LinkIcon, Loader, Save } from 'lucide-react';
-import { Suspense, lazy } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
-const AiStreamingMarkdown = lazy(() => import('@/components/ai/AiStreamingMarkdown'));
+function formatTokenBreakdown(message: AiMemoryMessage) {
+  const usageByPhase = message.metrics?.usageByPhase;
+  if (!usageByPhase) return '';
+
+  return [
+    usageByPhase.planning ? `Plan ${usageByPhase.planning.total_tokens}` : '',
+    usageByPhase.tool_decision ? `Tool ${usageByPhase.tool_decision.total_tokens}` : '',
+    usageByPhase.answer ? `Answer ${usageByPhase.answer.total_tokens}` : '',
+  ]
+    .filter(Boolean)
+    .join(' / ');
+}
 
 export function AiMessageItem({
   message,
@@ -24,6 +35,10 @@ export function AiMessageItem({
   saveAsNote: (message: AiMemoryMessage) => void;
 }) {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
+  const hasThinking = Object.values(message.thinking || {}).some((text) => text?.trim());
+  const hasAssistantStatus =
+    message.role === 'assistant' && ((message.timeline?.length || 0) > 0 || hasThinking);
+  const tokenBreakdown = formatTokenBreakdown(message);
 
   return (
     <div className={`px-4 py-4 ${message.role === 'assistant' ? 'bg-foreground/2' : ''}`}>
@@ -50,7 +65,7 @@ export function AiMessageItem({
               }}
             >
               {message.sources?.map((source, index) => {
-                const cleanText = cleanSourceText(source.text);
+                const cleanText = source.preview || cleanSourceText(source.text || '');
                 const titleText =
                   source.metadata?.title ||
                   cleanText.slice(0, 30).replace(/\s+/g, ' ').trim() ||
@@ -73,28 +88,22 @@ export function AiMessageItem({
         )}
         {message.role === 'assistant' && !message.error ? (
           message.content ? (
-            <Suspense
-              fallback={
-                <div className="leading-7 wrap-break-word whitespace-pre-line">
-                  {message.content}
-                </div>
-              }
-            >
-              <AiStreamingMarkdown
-                content={message.content}
-                isStreaming={message.isStreaming}
-                sources={message.sources}
-              />
-            </Suspense>
+            <AiStreamingMarkdown
+              content={message.content}
+              isStreaming={message.isStreaming}
+              sources={message.sources}
+            />
           ) : (
-            <div className="text-info flex items-center gap-2">
-              <Loader className="size-4 animate-spin" />
-              {!message.plan
-                ? t('messages.thinking')
-                : !(message.sources && message.sources.length > 0)
-                  ? t('messages.searching')
-                  : t('messages.reading')}
-            </div>
+            !hasAssistantStatus && (
+              <div className="text-info flex items-center gap-2">
+                <Loader className="size-4 animate-spin" />
+                {!message.plan
+                  ? t('messages.thinking')
+                  : !(message.sources && message.sources.length > 0)
+                    ? t('messages.searching')
+                    : t('messages.reading')}
+              </div>
+            )
           )
         ) : (
           <div
@@ -133,7 +142,12 @@ export function AiMessageItem({
             {message.metrics.totalTime && (
               <span>Total: {(message.metrics.totalTime / 1000).toFixed(2)}s</span>
             )}
-            {message.metrics.usage && <span>Tokens: {message.metrics.usage.total_tokens}</span>}
+            {message.metrics.usage && (
+              <span>
+                Tokens: {message.metrics.usage.total_tokens}
+                {tokenBreakdown ? ` (${tokenBreakdown})` : ''}
+              </span>
+            )}
           </div>
         )}
         {message.role === 'assistant' && !message.isStreaming && !message.error && (
