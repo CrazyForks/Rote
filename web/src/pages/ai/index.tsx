@@ -1,4 +1,4 @@
-import { AiMessageItem, preloadAiStreamingMarkdown } from '@/components/ai/AiMessageItem';
+import { AiMessageItem } from '@/components/ai/AiMessageItem';
 import { AiSourceList, getAiSourcePath } from '@/components/ai/AiSourceList';
 import NavBar from '@/components/layout/navBar';
 import { SoftBottom } from '@/components/others/SoftBottom';
@@ -34,6 +34,7 @@ import {
   ArrowUpRight,
   BrainCircuit,
   BrainCog,
+  Info,
   Loader,
   RefreshCw,
   Send,
@@ -196,10 +197,6 @@ function AiMemoryPage() {
     if (isAutoScrollPaused) return;
     scrollToMessageEnd('auto');
   }, [messages, isSending, isAutoScrollPaused, scrollToMessageEnd]);
-
-  useEffect(() => {
-    void preloadAiStreamingMarkdown();
-  }, []);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -766,6 +763,13 @@ function AiMemoryPage() {
   const SideBar = () => (
     <div className="divide-y">
       <StatusBlock />
+      <div className="p-4">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+          <Info className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">{t('privacy.title')}</span>
+        </div>
+        <p className="text-info mt-2 text-xs leading-5">{t('privacy.description')}</p>
+      </div>
       <div className="p-4">
         <div className="text-sm font-semibold">{t('quick.title')}</div>
         <div className="relative mt-3 flex flex-col gap-2 pb-6">

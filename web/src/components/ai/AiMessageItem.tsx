@@ -5,16 +5,12 @@ import {
   ThinkingTrace,
 } from '@/components/ai/AiMessageStatus';
 import { cleanSourceText, getAiSourcePath } from '@/components/ai/AiSourceList';
+import AiStreamingMarkdown from '@/components/ai/AiStreamingMarkdown';
 import { Button } from '@/components/ui/button';
 import type { AiMemoryMessage } from '@/state/aiChat';
 import { Link as LinkIcon, Loader, Save } from 'lucide-react';
-import { Suspense, lazy } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-
-export const preloadAiStreamingMarkdown = () => import('@/components/ai/AiStreamingMarkdown');
-
-const AiStreamingMarkdown = lazy(preloadAiStreamingMarkdown);
 
 function formatTokenBreakdown(message: AiMemoryMessage) {
   const usageByPhase = message.metrics?.usageByPhase;
@@ -92,19 +88,11 @@ export function AiMessageItem({
         )}
         {message.role === 'assistant' && !message.error ? (
           message.content ? (
-            <Suspense
-              fallback={
-                <div className="leading-7 wrap-break-word whitespace-pre-line">
-                  {message.content}
-                </div>
-              }
-            >
-              <AiStreamingMarkdown
-                content={message.content}
-                isStreaming={message.isStreaming}
-                sources={message.sources}
-              />
-            </Suspense>
+            <AiStreamingMarkdown
+              content={message.content}
+              isStreaming={message.isStreaming}
+              sources={message.sources}
+            />
           ) : (
             !hasAssistantStatus && (
               <div className="text-info flex items-center gap-2">
