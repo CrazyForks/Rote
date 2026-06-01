@@ -24,6 +24,10 @@ export function AiMessageItem({
   saveAsNote: (message: AiMemoryMessage) => void;
 }) {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
+  const hasAssistantStatus =
+    message.role === 'assistant' &&
+    ((message.timeline?.length || 0) > 0 ||
+      Boolean(message.thinking?.planning?.trim() || message.thinking?.answer?.trim()));
 
   return (
     <div className={`px-4 py-4 ${message.role === 'assistant' ? 'bg-foreground/2' : ''}`}>
@@ -87,14 +91,16 @@ export function AiMessageItem({
               />
             </Suspense>
           ) : (
-            <div className="text-info flex items-center gap-2">
-              <Loader className="size-4 animate-spin" />
-              {!message.plan
-                ? t('messages.thinking')
-                : !(message.sources && message.sources.length > 0)
-                  ? t('messages.searching')
-                  : t('messages.reading')}
-            </div>
+            !hasAssistantStatus && (
+              <div className="text-info flex items-center gap-2">
+                <Loader className="size-4 animate-spin" />
+                {!message.plan
+                  ? t('messages.thinking')
+                  : !(message.sources && message.sources.length > 0)
+                    ? t('messages.searching')
+                    : t('messages.reading')}
+              </div>
+            )
           )
         ) : (
           <div

@@ -13,7 +13,6 @@ export function AiStatusTitle({ children, icon }: { children: ReactNode; icon?: 
 }
 
 export function ScopeSummary({ message, title }: { message: AiMemoryMessage; title: string }) {
-  const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const summary = message.plan?.summary || [];
 
   if (summary.length > 0) {
@@ -27,19 +26,6 @@ export function ScopeSummary({ message, title }: { message: AiMemoryMessage; tit
             {item}
           </span>
         ))}
-      </div>
-    );
-  }
-
-  if (message.isStreaming && message.plan) {
-    return (
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <Loader className="size-3 animate-spin" />
-        <span className="text-muted-foreground animate-pulse font-medium">
-          {message.plan.query
-            ? `${t('messages.searching')}: ${message.plan.query}`
-            : t('messages.searching')}
-        </span>
       </div>
     );
   }
@@ -176,21 +162,9 @@ export function ThinkingTrace({ message }: { message: AiMemoryMessage }) {
     { phase: 'planning' as const, text: message.thinking?.planning || '' },
     { phase: 'answer' as const, text: message.thinking?.answer || '' },
   ].filter((entry) => entry.text.trim().length > 0);
-  const hasContent = message.content.trim().length > 0;
   const isStreaming = message.isStreaming || false;
-  const hasAnswerThinking = entries.some((entry) => entry.phase === 'answer');
-  const shouldShowPendingAnswer =
-    isStreaming && !hasContent && !hasAnswerThinking && (entries.length === 0 || !!message.plan);
 
   if (entries.length === 0) {
-    if (shouldShowPendingAnswer) {
-      return (
-        <div className="space-y-1">
-          <ThinkingPendingLine title={t('thinkingTrace.answer')} />
-        </div>
-      );
-    }
-
     return null;
   }
 
@@ -218,7 +192,6 @@ export function ThinkingTrace({ message }: { message: AiMemoryMessage }) {
           />
         );
       })}
-      {shouldShowPendingAnswer && <ThinkingPendingLine title={t('thinkingTrace.answer')} />}
     </div>
   );
 }
