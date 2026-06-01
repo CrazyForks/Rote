@@ -296,15 +296,18 @@ export default function SetupWizard() {
 
       // 调用初始化 API
       const response = await setupSystem(setupData);
+      const responseBody = response.data;
 
-      if (response.data) {
-        toast.success(t('pages.setupWizard.toasts.initSuccess'));
+      if (responseBody?.data) {
+        toast.success(responseBody?.message || t('pages.setupWizard.toasts.initSuccess'));
         navigate('/landing', { replace: true });
       } else {
-        toast.error(t('pages.setupWizard.toasts.initFailed'));
+        toast.error(responseBody?.message || t('pages.setupWizard.toasts.initFailed'));
       }
-    } catch (_error: any) {
-      toast.error(t('pages.setupWizard.toasts.initFailed'));
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || error?.message || t('pages.setupWizard.toasts.initFailed')
+      );
     } finally {
       setIsLoading(false);
     }

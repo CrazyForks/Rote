@@ -265,7 +265,12 @@ export async function getRoleStats() {
 // 按用户名或邮箱查找用户（用于初始化时校验是否已存在）
 export async function findUserByUsernameOrEmail(params: { username: string; email: string }) {
   const [user] = await db
-    .select({ id: users.id })
+    .select({
+      id: users.id,
+      username: users.username,
+      email: users.email,
+      role: users.role,
+    })
     .from(users)
     .where(or(eq(users.username, params.username), eq(users.email, params.email))!)
     .limit(1);

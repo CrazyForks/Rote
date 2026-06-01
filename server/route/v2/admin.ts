@@ -297,14 +297,50 @@ adminRouter.post('/setup', async (c: HonoContext) => {
       );
     }
 
-    // 检查管理员用户是否已存在
+    // 检查管理员用户是否已存在。旧版/半初始化数据库可能已有管理员但缺少 system
+    // settings，此时复用现有管理员完成配置初始化，避免卡在重复用户名。
+    const hasExistingAdmin = await hasAdminUser();
     const existingUser = await findUserByUsernameOrEmail({
       username: setupData.admin.username,
       email: setupData.admin.email,
     });
 
+    let adminUser: {
+      id: string;
+      username: string;
+      email: string;
+      role: string;
+    };
+    let reusedExistingAdmin = false;
+
     if (existingUser) {
-      return c.json(createResponse(null, 'Username or email already exists'), 400);
+      const isExistingAdmin = ['admin', 'super_admin'].includes(existingUser.role);
+      const isSameAdminIdentity =
+        existingUser.username === setupData.admin.username &&
+        existingUser.email === setupData.admin.email;
+
+      if (!isExistingAdmin || !isSameAdminIdentity) {
+        return c.json(createResponse(null, 'Username or email already exists'), 400);
+      }
+
+      adminUser = existingUser;
+      reusedExistingAdmin = true;
+    } else if (hasExistingAdmin) {
+      return c.json(
+        createResponse(
+          null,
+          'An admin user already exists. Please use the existing admin username and email to finish setup.'
+        ),
+        400
+      );
+    } else {
+      // 创建管理员用户（在事务中）
+      adminUser = await createAdminUser({
+        username: setupData.admin.username,
+        email: setupData.admin.email,
+        password: setupData.admin.password,
+        nickname: setupData.admin.nickname,
+      });
     }
 
     // 开始初始化流程
@@ -334,14 +370,6 @@ adminRouter.post('/setup', async (c: HonoContext) => {
       throw new Error('Failed to generate security keys');
     }
 
-    // 5. 创建管理员用户（在事务中）
-    const adminUser = await createAdminUser({
-      username: setupData.admin.username,
-      email: setupData.admin.email,
-      password: setupData.admin.password,
-      nickname: setupData.admin.nickname,
-    });
-
     // 6. 标记系统为已初始化
     // 获取当前迁移版本
     const migrationVersion = await getLatestMigrationVersion();
@@ -362,7 +390,9 @@ adminRouter.post('/setup', async (c: HonoContext) => {
 
     const response: SetupResponse = {
       success: true,
-      message: 'System initialization completed successfully',
+      message: reusedExistingAdmin
+        ? 'System initialization completed using the existing admin user. The existing password was not changed.'
+        : 'System initialization completed successfully',
       data: {
         adminUser,
         generatedKeys: {
