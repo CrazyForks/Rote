@@ -34,65 +34,76 @@ export interface AiSemanticResult {
 export interface AiChatResponse {
   answer: string;
   sources: AiSemanticResult[];
-  plan?: AiRetrievalPlan;
+  plan?: PlannerAgentResult;
   clarification?: AiClarification;
 }
 
-export interface AiTimePlan {
-  timeExpression: string | null;
-  timeKind: 'none' | 'rolling' | 'calendar' | 'explicit_range' | 'all_time' | 'ambiguous';
-  direction: 'current' | 'previous' | null;
-  amount: number | null;
-  unit: 'day' | 'week' | 'month' | 'year' | null;
-  from: string | null;
-  to: string | null;
-  confidence: number;
-  needsClarification: boolean;
-  normalizedRange?: {
-    from: string;
-    to: string;
-    label: string;
-  } | null;
+export type LifecycleScope = 'active' | 'archived' | 'all' | 'unspecified';
+export type TaskStatusScope = 'open' | 'closed' | 'all' | 'unspecified';
+
+export interface NormalizedTimeRange {
+  from: string;
+  to: string;
+  label: string;
 }
 
-export interface AiRetrievalFilters {
-  time: AiTimePlan | null;
-  tags: {
-    include: string[];
-    exclude: string[];
-    match: 'any' | 'all';
-    unresolved: string[];
-    confidence: number;
-  };
+export interface RetrievalScope {
+  ownerId: string;
+  query: string;
+  tags: string[];
+  excludeTags: string[];
   semanticScope: string[];
   sourceTypes: AiSourceType[];
-  state: 'private' | 'public' | 'all';
-  archived: boolean | null;
-  archivedScopeSpecified?: boolean;
+  timeRange: NormalizedTimeRange | null;
+  lifecycleScope: LifecycleScope;
+  taskStatusScope: TaskStatusScope;
+  limit: number;
+  cursor: string | null;
+  excludeIds: string[];
 }
 
-export interface AiRetrievalPlan {
-  originalMessage?: string;
-  query: string;
-  filters: AiRetrievalFilters;
-  comparison: null | {
-    mode: 'time' | 'tag_groups' | 'filter_groups';
-    groups: Array<{
-      label: string;
-      filters: AiRetrievalFilters;
-    }>;
-  };
-  confidence: number;
-  needsClarification: boolean;
-  clarificationQuestion: string | null;
-  summary?: string[];
+export interface RetrievalSnippet {
+  id: string;
+  sourceType: AiSourceType;
+  sourceId: string;
+  title?: string;
+  tags?: string[];
+  createdAt?: string;
+  similarity: number;
+  text: string;
+}
+
+export interface RetrievalToolResult {
+  canonicalizedArgs: RetrievalScope;
+  resultCount: number;
+  topSnippets: RetrievalSnippet[];
+  cursor: string | null;
+  warnings: string[];
+}
+
+export interface PlannerDebugTrace {
+  toolCalls: Array<{ step: number; name: string; args: unknown }>;
+  canonicalizedArgs: RetrievalScope[];
+  warnings: string[];
+  probeCounts: number[];
+  finishReason?: string;
+  fallbackReason?: string;
+  providerError?: string;
+  toolError?: string;
+}
+
+export interface PlannerAgentResult {
+  originalMessage: string;
   retrievalNeeded: boolean;
-  pagination: 'more' | null;
+  scope: RetrievalScope | null;
+  toolResult: RetrievalToolResult | null;
+  clarification: { question: string; reason?: string } | null;
+  debugTrace: PlannerDebugTrace;
 }
 
 export interface AiClarification {
   question: string;
-  pendingPlan: AiRetrievalPlan;
+  pendingPlan?: PlannerAgentResult | null;
 }
 
 export type AiAgentPhase =
@@ -125,7 +136,7 @@ export type AiTokenUsage = {
 
 export interface AiAgentClientState {
   conversationId?: string;
-  previousPlan?: AiRetrievalPlan | null;
+  previousPlan?: PlannerAgentResult | null;
   seenSourceIds?: string[];
   selectedContext?: {
     currentRoteId?: string;
@@ -143,7 +154,7 @@ export type AiChatStreamHandlers = {
   onToolStarted?: (toolName: string, args?: unknown) => void;
   onToolProgress?: (toolName: string, status: AiAgentToolProgressStatus) => void;
   onToolFinished?: (toolName: string, summary?: string) => void;
-  onPlan?: (plan: AiRetrievalPlan) => void;
+  onPlan?: (plan: PlannerAgentResult) => void;
   onClarification?: (clarification: AiClarification) => void;
   onSources?: (sources: AiSemanticResult[]) => void;
   onThinking?: (phase: AiThinkingPhase, text: string) => void;
@@ -160,9 +171,9 @@ export type AiChatPayload = {
   message: string;
   mode?: 'chat' | 'review' | 'organize';
   limit?: number;
-  pendingPlan?: AiRetrievalPlan | null;
+  pendingPlan?: PlannerAgentResult | null;
   clarificationAnswer?: string;
-  previousPlan?: AiRetrievalPlan | null;
+  previousPlan?: PlannerAgentResult | null;
   excludeIds?: string[];
   history?: { role: 'user' | 'assistant'; content: string }[];
   state?: AiAgentClientState | null;
@@ -295,11 +306,11 @@ async function readAiStreamResponse(
       const data = parsed.data as { toolName?: string; summary?: string };
       if (data.toolName) handlers.onToolFinished?.(data.toolName, data.summary);
     } else if (parsed.event === 'plan') {
-      const plan = (parsed.data as { plan?: AiRetrievalPlan })?.plan;
+      const plan = (parsed.data as { plan?: PlannerAgentResult })?.plan;
       if (plan) handlers.onPlan?.(plan);
     } else if (parsed.event === 'clarification') {
       const clarification = parsed.data as AiClarification;
-      if (clarification?.question && clarification.pendingPlan) {
+      if (clarification?.question) {
         handlers.onClarification?.(clarification);
       }
     } else if (parsed.event === 'sources') {

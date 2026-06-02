@@ -1,5 +1,5 @@
 import type { AiMemoryMessage } from '@/state/aiChat';
-import type { AiRetrievalPlan, AiThinkingPhase } from '@/utils/aiApi';
+import type { AiThinkingPhase, PlannerAgentResult } from '@/utils/aiApi';
 import { Brain, SlidersHorizontal, Workflow } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,32 +13,30 @@ export function AiStatusTitle({ children, icon }: { children: ReactNode; icon?: 
   );
 }
 
-function buildScopeSummary(plan: AiRetrievalPlan, t: ReturnType<typeof useTranslation>['t']) {
+function buildScopeSummary(plan: PlannerAgentResult, t: ReturnType<typeof useTranslation>['t']) {
   const summary: string[] = [];
-  if (plan.pagination === 'more') summary.push(t('scope.paginationMore'));
+  const scope = plan.scope;
+  if (!scope) return summary;
 
-  const range = plan.filters.time?.normalizedRange;
-  if (range) summary.push(t('scope.time', { label: range.label }));
+  if (scope.timeRange) summary.push(t('scope.time', { label: scope.timeRange.label }));
 
-  if (plan.filters.tags.include.length) {
-    summary.push(
-      t('scope.tags', { tags: plan.filters.tags.include.map((tag) => `#${tag}`).join('、') })
-    );
+  if (scope.tags.length) {
+    summary.push(t('scope.tags', { tags: scope.tags.map((tag) => `#${tag}`).join('、') }));
   }
 
-  if (plan.filters.tags.exclude.length) {
+  if (scope.excludeTags.length) {
     summary.push(
       t('scope.excludeTags', {
-        tags: plan.filters.tags.exclude.map((tag) => `#${tag}`).join('、'),
+        tags: scope.excludeTags.map((tag) => `#${tag}`).join('、'),
       })
     );
   }
 
-  if (plan.filters.semanticScope.length) {
-    summary.push(t('scope.semanticScope', { keywords: plan.filters.semanticScope.join('、') }));
+  if (scope.semanticScope.length) {
+    summary.push(t('scope.semanticScope', { keywords: scope.semanticScope.join('、') }));
   }
 
-  const sourceTypes = plan.filters.sourceTypes;
+  const sourceTypes = scope.sourceTypes;
   if (sourceTypes.length === 1) {
     summary.push(
       sourceTypes[0] === 'rote' ? t('scope.sourceTypes.rote') : t('scope.sourceTypes.article')
@@ -47,28 +45,16 @@ function buildScopeSummary(plan: AiRetrievalPlan, t: ReturnType<typeof useTransl
     summary.push(t('scope.sourceTypes.all'));
   }
 
-  if (plan.filters.state === 'public') {
-    summary.push(t('scope.visibility.public'));
-  } else if (plan.filters.state === 'private') {
-    summary.push(t('scope.visibility.private'));
-  } else {
-    summary.push(t('scope.visibility.all'));
-  }
-
-  if (plan.filters.archived === true) {
+  if (scope.lifecycleScope === 'archived') {
     summary.push(t('scope.archive.archived'));
-  } else if (plan.filters.archived === false) {
+  } else if (scope.lifecycleScope === 'active') {
     summary.push(t('scope.archive.active'));
-  } else if (plan.filters.archivedScopeSpecified) {
+  } else if (scope.lifecycleScope === 'all') {
     summary.push(t('scope.archive.all'));
   }
 
-  if (plan.comparison) {
-    summary.push(
-      t('scope.comparison', {
-        groups: plan.comparison.groups.map((group) => group.label).join(' / '),
-      })
-    );
+  if (scope.taskStatusScope !== 'unspecified') {
+    summary.push(`task:${scope.taskStatusScope}`);
   }
 
   return summary;

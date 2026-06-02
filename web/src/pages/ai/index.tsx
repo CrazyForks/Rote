@@ -480,16 +480,12 @@ function AiMemoryPage() {
           },
           onPlan: (plan) => {
             if (!isActiveRun(assistantId)) return;
-            currentIsMoreRef.current = plan.pagination === 'more';
-            if (!currentIsMoreRef.current) {
-              seenSourceIdsRef.current.clear();
-              mergeAgentState(
-                { previousPlan: plan, seenSourceIds: [] },
-                { replaceSeenSourceIds: true }
-              );
-            } else {
-              mergeAgentState({ previousPlan: plan });
-            }
+            currentIsMoreRef.current = false;
+            seenSourceIdsRef.current.clear();
+            mergeAgentState(
+              { previousPlan: plan, seenSourceIds: [] },
+              { replaceSeenSourceIds: true }
+            );
             const planTime = performance.now() - start;
             setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
@@ -503,19 +499,7 @@ function AiMemoryPage() {
             if (!isActiveRun(assistantId)) return;
             receivedClarification = true;
             const planTime = performance.now() - start;
-            let translatedContent = clarification.question;
-            if (clarification.question === 'error_clarify_unresolved_tags') {
-              const tags = clarification.pendingPlan?.filters?.tags?.unresolved || [];
-              translatedContent = t('messages.clarifyUnresolvedTags', {
-                tags: tags.map((tag) => `#${tag}`).join('、'),
-              });
-            } else if (clarification.question === 'error_clarify_ambiguous_time') {
-              translatedContent = t('messages.clarifyAmbiguousTime');
-            } else if (clarification.question === 'error_clarify_ambiguous_scope') {
-              translatedContent = t('messages.clarifyAmbiguousScope');
-            } else if (clarification.question === 'error_clarify_more_results') {
-              translatedContent = t('messages.clarifyMoreResults');
-            }
+            const translatedContent = clarification.question;
 
             setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
@@ -524,8 +508,8 @@ function AiMemoryPage() {
                       {
                         ...message,
                         content: translatedContent,
-                        plan: clarification.pendingPlan,
-                        pendingPlan: clarification.pendingPlan,
+                        plan: clarification.pendingPlan ?? undefined,
+                        pendingPlan: clarification.pendingPlan ?? undefined,
                         clarification: true,
                         isStreaming: false,
                         metrics: {

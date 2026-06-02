@@ -1,6 +1,6 @@
 import type { AiConfig } from '../../../types/config';
 import type { ChatCompletionUsage, ChatMessage, ChatToolCall, ChatToolDefinition } from '../client';
-import type { AiRetrievalPlan, SemanticSearchResult } from '../../dbMethods/ai';
+import type { PlannerAgentDto, SemanticSearchResult } from '../../dbMethods/ai';
 
 export type RoteAgentMode = 'chat' | 'review' | 'organize';
 
@@ -28,7 +28,7 @@ export type RoteAgentThinkingPhase =
 
 export type RoteAgentClientState = {
   conversationId?: string;
-  previousPlan?: AiRetrievalPlan | null;
+  previousPlan?: PlannerAgentDto | null;
   seenSourceIds?: string[];
   selectedContext?: {
     currentRoteId?: string;
@@ -47,9 +47,9 @@ export type RoteAgentRequest = {
   selectedContext?: RoteAgentClientState['selectedContext'];
   debug?: boolean;
   limit?: number;
-  previousPlan?: AiRetrievalPlan | null;
+  previousPlan?: PlannerAgentDto | null;
   excludeIds?: string[];
-  pendingPlan?: AiRetrievalPlan | null;
+  pendingPlan?: PlannerAgentDto | null;
   clarificationAnswer?: string;
 };
 
@@ -71,8 +71,8 @@ export type RoteAgentStreamEvent =
   | { type: 'tool_progress'; toolName: string; status: RoteAgentToolProgressStatus }
   | { type: 'tool_finished'; toolName: string; summary?: unknown }
   | { type: 'sources'; sources: SemanticSearchResult[] }
-  | { type: 'plan'; plan: AiRetrievalPlan }
-  | { type: 'clarification'; question: string; pendingPlan: AiRetrievalPlan }
+  | { type: 'plan'; plan: PlannerAgentDto }
+  | { type: 'clarification'; question: string; pendingPlan?: PlannerAgentDto | null }
   | { type: 'thinking'; phase: RoteAgentThinkingPhase; text: string }
   | { type: 'delta'; text: string }
   | { type: 'state_patch'; state: Partial<RoteAgentClientState> }
@@ -105,9 +105,9 @@ export type RoteAgentToolResult = {
   displaySummary?: unknown;
   modelContent: string;
   sources?: SemanticSearchResult[];
-  plan?: AiRetrievalPlan;
+  plan?: PlannerAgentDto;
   statePatch?: Partial<RoteAgentClientState>;
-  clarification?: { question: string; pendingPlan: AiRetrievalPlan };
+  clarification?: { question: string; pendingPlan?: PlannerAgentDto | null };
 };
 
 export type RoteAgentTool = {

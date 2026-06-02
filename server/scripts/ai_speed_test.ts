@@ -27,7 +27,8 @@ async function testQuery(ownerId: string, message: string) {
     return;
   }
 
-  console.log('   Plan Summary:', context.plan.summary);
+  console.log('   Retrieval scope:', context.plan.scope);
+  console.log('   Probe count:', context.plan.toolResult?.resultCount || 0);
   console.log(`   Found ${context.sources.length} sources`);
 
   // 2. LLM Generation

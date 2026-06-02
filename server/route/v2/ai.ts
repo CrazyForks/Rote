@@ -8,11 +8,7 @@ import {
   testChatProvider,
   testEmbeddingProvider,
 } from '../../utils/ai/client';
-import {
-  isAgentToolCallingUnavailableError,
-  runRoteAgentStream,
-  type RoteAgentStreamEvent,
-} from '../../utils/ai/agent/runtime';
+import { runRoteAgentStream, type RoteAgentStreamEvent } from '../../utils/ai/agent/runtime';
 import { AI_PROVIDER_PRESETS, resolveIncomingAiConfig } from '../../utils/ai/providers';
 import {
   type AiSourceType,
@@ -91,7 +87,7 @@ async function writeAgentSseEvent(
   await writeSseEvent(stream, event.type, data);
 }
 
-async function streamLegacyChatResponse(
+async function streamToolPlannedChatResponse(
   stream: Parameters<Parameters<typeof streamSSE>[1]>[0],
   user: User,
   body: any,
@@ -101,9 +97,6 @@ async function streamLegacyChatResponse(
     ownerId: user.id,
     message,
     limit: body?.limit,
-    pendingPlan: body?.pendingPlan,
-    clarificationAnswer: body?.clarificationAnswer,
-    previousPlan: body?.previousPlan,
     excludeIds: body?.excludeIds,
     history: body?.history,
     onPlanThinkingDelta: async (text) => {
@@ -353,9 +346,6 @@ aiRouter.post('/chat', authenticateJWT, bodyTypeCheck, async (c: HonoContext) =>
     ownerId: user.id,
     message,
     limit: body?.limit,
-    pendingPlan: body?.pendingPlan,
-    clarificationAnswer: body?.clarificationAnswer,
-    previousPlan: body?.previousPlan,
     excludeIds: body?.excludeIds,
     history: body?.history,
   });
@@ -383,35 +373,24 @@ aiRouter.post('/agent/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCon
         throw new Error('AI is disabled');
       }
 
-      try {
-        await runRoteAgentStream({
-          userId: user.id,
-          request: {
-            message,
-            mode: body?.mode,
-            history: body?.history,
-            state: body?.state,
-            selectedContext: body?.selectedContext,
-            debug: body?.debug,
-            limit: body?.limit,
-            previousPlan: body?.previousPlan,
-            excludeIds: body?.excludeIds,
-            pendingPlan: body?.pendingPlan,
-            clarificationAnswer: body?.clarificationAnswer,
-          },
-          config,
-          emit: (event) => writeAgentSseEvent(stream, event),
-        });
-      } catch (error) {
-        if (!isAgentToolCallingUnavailableError(error)) {
-          throw error;
-        }
-        await writeSseEvent(stream, 'progress', {
-          phase: 'planning',
-          message: '当前模型不支持工具调用，正在使用兼容模式',
-        });
-        await streamLegacyChatResponse(stream, user, body, message);
-      }
+      await runRoteAgentStream({
+        userId: user.id,
+        request: {
+          message,
+          mode: body?.mode,
+          history: body?.history,
+          state: body?.state,
+          selectedContext: body?.selectedContext,
+          debug: body?.debug,
+          limit: body?.limit,
+          previousPlan: body?.previousPlan,
+          excludeIds: body?.excludeIds,
+          pendingPlan: body?.pendingPlan,
+          clarificationAnswer: body?.clarificationAnswer,
+        },
+        config,
+        emit: (event) => writeAgentSseEvent(stream, event),
+      });
     } catch (error: any) {
       await writeSseEvent(stream, 'error', {
         message: error?.message || 'AI agent stream failed',
@@ -436,7 +415,7 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
   return streamSSE(c, async (stream) => {
     try {
       await stream.write(': connected\n\n');
-      await streamLegacyChatResponse(stream, user, body, message);
+      await streamToolPlannedChatResponse(stream, user, body, message);
     } catch (error: any) {
       await writeSseEvent(stream, 'error', {
         message: error?.message || 'AI stream failed',

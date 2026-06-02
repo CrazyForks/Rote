@@ -2,24 +2,22 @@ import { eq } from 'drizzle-orm';
 import { rotes } from '../../../drizzle/schema';
 import db from '../../drizzle';
 import {
-  buildRetrievalContext,
   findArticleById,
   findRoteById,
-  logAiTokenUsage,
-  sanitizeExcludeIds,
-  sanitizePreviousPlan,
   semanticSearch,
+  searchRotesProbe,
+  sanitizeExcludeIds,
+  toPlannerAgentDto,
   type AiSourceType,
+  type PlannerAgentResult,
   type SemanticSearchResult,
 } from '../../dbMethods';
 import {
-  buildNewSearchPlan,
-  createRetrievalPlan,
+  canonicalizeSearchRotesArgs,
   getUserRoteTags,
-  type AiArchivedScope,
-  type AiRetrievalPlan,
-  type AiTaskStatusScope,
-  type PlannerOutput,
+  type LifecycleScope,
+  type SearchRotesArgs,
+  type TaskStatusScope,
 } from '../retrievalPlan';
 import { getNativeRoteSkill, NATIVE_ROTE_SKILLS } from './skills';
 import type {
@@ -29,31 +27,14 @@ import type {
   RoteAgentToolResult,
 } from './types';
 
-type SearchNotesInput = {
-  query?: string;
-  intentHint?: 'new_search' | 'more' | 'refine' | 'review';
-  tags?: { include?: string[]; exclude?: string[] };
-  semanticScope?: string[];
-  timeExpression?: string;
-  archivedScope?: AiArchivedScope;
-  taskStatusScope?: AiTaskStatusScope;
-  sourceTypes?: AiSourceType[];
-  limit?: number;
-};
-
 const VALID_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
-const VALID_ARCHIVED_SCOPES = new Set<AiArchivedScope>([
+const VALID_LIFECYCLE_SCOPES = new Set<LifecycleScope>([
   'active',
   'archived',
   'all',
   'unspecified',
 ]);
-const VALID_TASK_STATUS_SCOPES = new Set<AiTaskStatusScope>([
-  'open',
-  'closed',
-  'all',
-  'unspecified',
-]);
+const VALID_TASK_STATUS_SCOPES = new Set<TaskStatusScope>(['open', 'closed', 'all', 'unspecified']);
 function asRecord(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, any>)
@@ -75,10 +56,6 @@ function normalizeLimit(value: unknown, fallback = 8): number {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.min(Math.max(Math.floor(numeric), 1), 50);
-}
-
-function resolveAgentFinalSourceLimit(requestedLimit?: number): number {
-  return normalizeLimit(requestedLimit, 15);
 }
 
 function sourceKey(source: SemanticSearchResult): string {
@@ -123,84 +100,34 @@ function toModelContent(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-function parseSearchNotesInput(args: unknown): SearchNotesInput {
+function parseSearchNotesInput(args: unknown, fallbackQuery: string): SearchRotesArgs {
   const raw = asRecord(args);
   const tags = asRecord(raw.tags);
   const sourceTypes = uniqueStrings(raw.sourceTypes)
     .filter((type): type is AiSourceType => VALID_SOURCE_TYPES.has(type as AiSourceType))
     .slice(0, 2);
   return {
-    query: typeof raw.query === 'string' ? raw.query.trim() : undefined,
-    intentHint:
-      raw.intentHint === 'more' ||
-      raw.intentHint === 'refine' ||
-      raw.intentHint === 'review' ||
-      raw.intentHint === 'new_search'
-        ? raw.intentHint
-        : undefined,
-    tags:
-      tags.include || tags.exclude
-        ? {
-            include: uniqueStrings(tags.include),
-            exclude: uniqueStrings(tags.exclude),
-          }
-        : undefined,
+    query: typeof raw.query === 'string' ? raw.query.trim() : fallbackQuery,
+    tags: uniqueStrings(raw.tags).length ? uniqueStrings(raw.tags) : uniqueStrings(tags.include),
+    excludeTags: uniqueStrings(raw.excludeTags).length
+      ? uniqueStrings(raw.excludeTags)
+      : uniqueStrings(tags.exclude),
     semanticScope: uniqueStrings(raw.semanticScope),
     timeExpression: typeof raw.timeExpression === 'string' ? raw.timeExpression.trim() : undefined,
-    archivedScope: VALID_ARCHIVED_SCOPES.has(raw.archivedScope)
-      ? (raw.archivedScope as AiArchivedScope)
-      : undefined,
+    from: typeof raw.from === 'string' ? raw.from.trim() : undefined,
+    to: typeof raw.to === 'string' ? raw.to.trim() : undefined,
+    lifecycleScope: VALID_LIFECYCLE_SCOPES.has(raw.lifecycleScope as LifecycleScope)
+      ? (raw.lifecycleScope as LifecycleScope)
+      : VALID_LIFECYCLE_SCOPES.has(raw.archivedScope as LifecycleScope)
+        ? (raw.archivedScope as LifecycleScope)
+        : undefined,
     taskStatusScope: VALID_TASK_STATUS_SCOPES.has(raw.taskStatusScope)
-      ? (raw.taskStatusScope as AiTaskStatusScope)
+      ? (raw.taskStatusScope as TaskStatusScope)
       : undefined,
     sourceTypes: sourceTypes.length ? sourceTypes : undefined,
     limit: raw.limit === undefined ? undefined : normalizeLimit(raw.limit),
+    cursor: typeof raw.cursor === 'string' ? raw.cursor.trim() : undefined,
   };
-}
-
-function hasStructuredSearchPatch(input: SearchNotesInput): boolean {
-  return Boolean(
-    input.tags?.include?.length ||
-    input.tags?.exclude?.length ||
-    input.semanticScope?.length ||
-    input.timeExpression ||
-    input.archivedScope ||
-    input.taskStatusScope ||
-    input.sourceTypes?.length
-  );
-}
-
-function buildPatchFromSearchInput(
-  input: SearchNotesInput,
-  fallbackQuery: string
-): PlannerOutput['patch'] {
-  const toolQuery = input.query?.trim() || '';
-  const hasHardScope = Boolean(
-    input.tags?.include?.length ||
-    input.tags?.exclude?.length ||
-    input.timeExpression ||
-    input.archivedScope ||
-    input.taskStatusScope ||
-    input.sourceTypes?.length
-  );
-  const hasSoftScope = Boolean(input.semanticScope?.length);
-  const query = toolQuery || (hasHardScope && !hasSoftScope ? '' : fallbackQuery);
-  return {
-    query,
-    tags: input.tags,
-    semanticScope: input.semanticScope,
-    timeExpression: input.timeExpression,
-    archivedScope: input.archivedScope,
-    taskStatusScope: input.taskStatusScope,
-    sourceTypes: input.sourceTypes,
-  };
-}
-
-function normalizePreviousStatePlan(
-  ctx: RoteAgentContext,
-  availableTags: string[]
-): AiRetrievalPlan | null {
-  return sanitizePreviousPlan(ctx.request.previousPlan || ctx.state.previousPlan, availableTags);
 }
 
 function buildSeenSourceIds(
@@ -215,116 +142,84 @@ function buildSeenSourceIds(
   );
 }
 
-async function resolveSearchPlan(
-  input: SearchNotesInput,
+async function executeAgentSearch(
+  input: SearchRotesArgs,
   ctx: RoteAgentContext
-): Promise<AiRetrievalPlan> {
+): Promise<PlannerAgentResult> {
   const availableTags = await getUserRoteTags(ctx.userId);
-  const fallbackQuery = ctx.request.message?.trim() || '';
-  if (hasStructuredSearchPatch(input)) {
-    return buildNewSearchPlan(buildPatchFromSearchInput(input, fallbackQuery), availableTags);
-  }
-
-  const query = input.query || (input.intentHint === 'more' ? '多来几条' : '') || fallbackQuery;
-  const previousPlan = normalizePreviousStatePlan(ctx, availableTags);
-
-  return createRetrievalPlan({
+  const { scope, warnings } = canonicalizeSearchRotesArgs({
     ownerId: ctx.userId,
-    message: query,
-    config: ctx.config,
-    pendingPlan: ctx.request.pendingPlan,
-    clarificationAnswer: ctx.request.clarificationAnswer,
-    previousPlan,
-    history: ctx.request.history,
-    onThinkingDelta: (text) => ctx.emit({ type: 'thinking', phase: 'retrieval_planning', text }),
-    onUsage: async (usage) => {
-      await logAiTokenUsage({
-        userid: ctx.userId,
-        model: ctx.config.chat.model,
-        type: 'chat',
-        promptTokens: usage.prompt_tokens,
-        completionTokens: usage.completion_tokens,
-        totalTokens: usage.total_tokens,
-      });
-      await ctx.emit({ type: 'usage', phase: 'planning', usage });
-    },
+    args: input,
+    availableTags,
+    excludeIds: sanitizeExcludeIds([
+      ...(ctx.request.excludeIds || []),
+      ...(ctx.state.seenSourceIds || []),
+    ]),
   });
+  const probe = await searchRotesProbe(scope);
+  const toolResult = {
+    ...probe.toolResult,
+    warnings: Array.from(new Set([...warnings, ...probe.toolResult.warnings])),
+  };
+  return {
+    originalMessage: ctx.request.message,
+    retrievalNeeded: true,
+    scope,
+    toolResult,
+    sources: probe.sources,
+    clarification: null,
+    debugTrace: {
+      toolCalls: [{ step: 0, name: 'rote_search_notes', args: input }],
+      canonicalizedArgs: [scope],
+      warnings: toolResult.warnings,
+      probeCounts: [toolResult.resultCount],
+      finishReason: 'agent_search_tool',
+    },
+  };
 }
 
 async function executeSearchNotes(
   args: unknown,
   ctx: RoteAgentContext
 ): Promise<RoteAgentToolResult> {
-  const input = parseSearchNotesInput(args);
+  const input = parseSearchNotesInput(args, ctx.request.message?.trim() || '');
   await ctx.emit({
     type: 'tool_progress',
     toolName: 'rote_search_notes',
     status: 'determining_scope',
   });
-  const plan = await resolveSearchPlan(input, ctx);
-
-  if (plan.needsClarification) {
-    const question = plan.clarificationQuestion || 'Can you clarify the scope?';
-    return {
-      observations: ['The search scope needs clarification before retrieval.'],
-      modelContent: toModelContent({
-        status: 'needs_clarification',
-        question,
-        planSummary: plan.summary || [],
-      }),
-      plan,
-      statePatch: { previousPlan: plan },
-      clarification: { question, pendingPlan: plan },
-    };
-  }
+  const plan = await executeAgentSearch(input, ctx);
 
   await ctx.emit({
     type: 'tool_progress',
     toolName: 'rote_search_notes',
     status: 'retrieving_sources',
   });
-  const shouldUseSeenSourceIds = plan.pagination === 'more';
-  const excludeIds = shouldUseSeenSourceIds
-    ? sanitizeExcludeIds([...(ctx.request.excludeIds || []), ...(ctx.state.seenSourceIds || [])])
-    : undefined;
-  const requestedLimit = input.limit ?? ctx.request.limit;
-  const sourceLimit = resolveAgentFinalSourceLimit(requestedLimit);
-  const { sources, diagnostics } = await buildRetrievalContext({
-    ownerId: ctx.userId,
-    plan,
-    limit: sourceLimit,
-    sourceLimit,
-    excludeIds,
-  });
+  const sources = plan.sources as SemanticSearchResult[];
+  const planDto = toPlannerAgentDto(plan);
   const registrations = ctx.registerSources(sources);
   const registeredSources = formatRegisteredSources(registrations, ctx.policy.maxSourceChars);
   const statePatch = {
-    previousPlan: plan,
-    seenSourceIds: buildSeenSourceIds(ctx, sources, shouldUseSeenSourceIds),
+    previousPlan: planDto,
+    seenSourceIds: buildSeenSourceIds(ctx, sources, true),
   };
 
   return {
-    observations: [
-      `Found ${sources.length} source(s).`,
-      `Sample status: ${diagnostics.sampleStatus}.`,
-    ],
+    observations: [`Found ${sources.length} source(s).`],
     displaySummary: {
       count: sources.length,
-      sampleStatus: diagnostics.sampleStatus,
       sourceTypes: Array.from(new Set(sources.map((s) => s.sourceType))),
     },
     sources,
-    plan,
+    plan: planDto,
     statePatch,
     modelContent: toModelContent({
       status: 'ok',
       plan: {
-        query: plan.query,
-        summary: plan.summary || [],
-        sampleStatus: diagnostics.sampleStatus,
-        candidateCount: diagnostics.candidateCount,
-        contextSourceCount: diagnostics.contextSourceCount,
-        groupStats: diagnostics.groupStats,
+        scope: planDto.scope,
+        resultCount: planDto.toolResult?.resultCount || 0,
+        cursor: planDto.toolResult?.cursor || null,
+        warnings: planDto.toolResult?.warnings || [],
       },
       sources: registeredSources,
       instructions:
@@ -531,13 +426,13 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                 description:
                   'Semantic evidence query. For broad analysis, write a broad useful query; leave empty only for pure hard-filter browsing.',
               },
-              intentHint: { type: 'string', enum: ['new_search', 'more', 'refine', 'review'] },
               tags: {
-                type: 'object',
-                properties: {
-                  include: { type: 'array', items: { type: 'string' } },
-                  exclude: { type: 'array', items: { type: 'string' } },
-                },
+                type: 'array',
+                items: { type: 'string' },
+              },
+              excludeTags: {
+                type: 'array',
+                items: { type: 'string' },
               },
               semanticScope: {
                 type: 'array',
@@ -546,17 +441,19 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                   'Soft topic keywords for semantic retrieval. Use for themes and patterns that are not verified tags.',
               },
               timeExpression: { type: 'string' },
-              archivedScope: {
+              from: { type: 'string' },
+              to: { type: 'string' },
+              lifecycleScope: {
                 type: 'string',
-                enum: Array.from(VALID_ARCHIVED_SCOPES),
+                enum: Array.from(VALID_LIFECYCLE_SCOPES),
                 description:
-                  'Use active for unarchived notes, archived for archived notes, all for both, unspecified if the user did not ask.',
+                  'Note lifecycle scope only: active for unarchived notes, archived for archived notes, all for both, unspecified if not asked.',
               },
               taskStatusScope: {
                 type: 'string',
                 enum: Array.from(VALID_TASK_STATUS_SCOPES),
                 description:
-                  'Use open for unfinished tasks, closed for completed tasks, all for both. Archived task notes are closed/completed.',
+                  'Task/open-loop semantic scope only. This is independent from lifecycleScope and does not map to archived.',
               },
               sourceTypes: {
                 type: 'array',
@@ -566,6 +463,10 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                 type: 'number',
                 description:
                   'Final source count to return. Choose a larger value for broad pattern analysis and a smaller value for focused lookup.',
+              },
+              cursor: {
+                type: 'string',
+                description: 'Opaque cursor returned by a previous rote_search_notes call.',
               },
             },
             required: ['query'],

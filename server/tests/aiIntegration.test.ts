@@ -13,11 +13,7 @@ import { db } from '../utils/drizzle';
 import { users } from '../drizzle/schema';
 import { prepareRoteChatContext } from '../utils/dbMethods/ai';
 import { createChatCompletionStream } from '../utils/ai/client';
-import {
-  createFastRetrievalPlan,
-  getUserRoteTags,
-  hasComplexModifiers,
-} from '../utils/ai/retrievalPlan';
+import { canonicalizeSearchRotesArgs, getUserRoteTags } from '../utils/ai/retrievalPlan';
 
 let testUserId = '';
 let availableTags: string[] = [];
@@ -56,7 +52,6 @@ async function runChat(
     ownerId: testUserId,
     message,
     limit: options.limit || 8,
-    previousPlan: options.previousPlan,
     excludeIds: options.excludeIds,
     history: options.history,
     onPlanThinkingDelta: () => {},
@@ -66,7 +61,7 @@ async function runChat(
 
   if (context.clarification) {
     return {
-      plan: { needsClarification: true, clarificationQuestion: context.clarification.question },
+      plan: { clarification: context.clarification },
       sources: [],
       answer: context.clarification.question,
       planTime,
@@ -259,16 +254,38 @@ describe('Multi-turn', () => {
 // ============================================================
 describe('Complex Modifiers', () => {
   test('不要X → fast path null', () => {
-    expect(createFastRetrievalPlan('#todo 不要已完成的', availableTags)).toBeNull();
-    expect(createFastRetrievalPlan('最近90天不要rote相关的', availableTags)).toBeNull();
+    const p1 = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { tags: ['todo'], taskStatusScope: 'closed' },
+    });
+    const p2 = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { timeExpression: '最近90天', semanticScope: ['rote'], taskStatusScope: 'open' },
+    });
+    expect(p1.scope.taskStatusScope).toBe('closed');
+    expect(p2.scope.timeRange?.label).toBe('最近90天');
   });
 
   test('对比一下 → fast path null', () => {
-    expect(createFastRetrievalPlan('#todo 和 #solved 对比一下', availableTags)).toBeNull();
+    const scoped = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { tags: ['todo', 'solved'] },
+    });
+    expect(scoped.scope.semanticScope.length + scoped.scope.tags.length).toBeGreaterThan(0);
   });
 
   test('换成X → fast path null', () => {
-    expect(createFastRetrievalPlan('#todo 换成生活', availableTags)).toBeNull();
+    const replaced = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { tags: ['生活'] },
+    });
+    expect(
+      replaced.scope.tags.includes('生活') || replaced.scope.semanticScope.includes('生活')
+    ).toBe(true);
   });
 
   test('不要X → full pipeline works', async () => {
@@ -288,36 +305,35 @@ describe('Complex Modifiers', () => {
 // 6. 纯函数验证
 // ============================================================
 describe('Pure Functions', () => {
-  test('hasComplexModifiers', () => {
-    expect(hasComplexModifiers('不要工作')).toBe(true);
-    expect(hasComplexModifiers('排除无关的')).toBe(true);
-    expect(hasComplexModifiers('换成生活')).toBe(true);
-    expect(hasComplexModifiers('对比一下')).toBe(true);
-    expect(hasComplexModifiers('最近的待办')).toBe(true);
-    expect(hasComplexModifiers('分析一下情绪')).toBe(true);
-    // #tag names stripped → no false positive
-    expect(hasComplexModifiers('#todo 有哪些')).toBe(false);
-    expect(hasComplexModifiers('#待办事项 列表')).toBe(false);
-    expect(hasComplexModifiers('最近90天')).toBe(false);
-    expect(hasComplexModifiers('谢谢')).toBe(false);
-    expect(hasComplexModifiers('#todo')).toBe(false);
-  });
-
-  test('createFastRetrievalPlan: simple → plan, complex → null', () => {
+  test('canonicalizeSearchRotesArgs: validates tags/time/source scopes', () => {
     const tag = availableTags.find((t) => /^[a-zA-Z]/.test(t));
     if (!tag) return console.log('  [SKIP] no Latin tag');
 
     // Simple signals → plan
-    const p1 = createFastRetrievalPlan(`#${tag}`, availableTags);
-    expect(p1).not.toBeNull();
-    expect(p1!.filters.tags.include).toContain(tag);
+    const p1 = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { tags: [tag], sourceTypes: ['rote'], limit: 999 },
+    });
+    expect(p1.scope.tags).toContain(tag);
+    expect(p1.scope.sourceTypes).toEqual(['rote']);
+    expect(p1.scope.limit).toBe(50);
 
-    const p2 = createFastRetrievalPlan('#tag 里面开心的事', availableTags);
-    expect(p2).not.toBeNull();
-    expect(p2!.query).toContain('开心');
+    const p2 = canonicalizeSearchRotesArgs({
+      ownerId: testUserId,
+      availableTags,
+      args: { tags: ['tag'], query: '里面开心的事' },
+    });
+    expect(p2.scope.query).toBe('里面开心的事');
+    expect(p2.scope.query).toContain('开心');
 
     // Complex modifiers → null
-    expect(createFastRetrievalPlan(`#${tag} 不要已完成的`, availableTags)).toBeNull();
-    expect(createFastRetrievalPlan('#tag 对比一下', availableTags)).toBeNull();
+    expect(
+      canonicalizeSearchRotesArgs({
+        ownerId: testUserId,
+        availableTags,
+        args: { tags: [tag], taskStatusScope: 'open' },
+      }).scope.taskStatusScope
+    ).toBe('open');
   });
 });

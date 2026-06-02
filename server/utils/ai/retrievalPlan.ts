@@ -2,324 +2,179 @@ import { sql } from 'drizzle-orm';
 import { rotes } from '../../drizzle/schema';
 import type { AiConfig } from '../../types/config';
 import db from '../drizzle';
-import { createChatCompletionStreamParts, type ChatCompletionUsage } from './client';
+import {
+  createChatCompletionWithToolsStreaming,
+  type ChatCompletionUsage,
+  type ChatMessage,
+  type ChatToolCall,
+  type ChatToolDefinition,
+} from './client';
 
-export type AiTimeKind =
-  | 'none'
-  | 'rolling'
-  | 'calendar'
-  | 'explicit_range'
-  | 'all_time'
-  | 'ambiguous';
-
+export type AiSourceType = 'rote' | 'article';
+export type LifecycleScope = 'active' | 'archived' | 'all' | 'unspecified';
+export type TaskStatusScope = 'open' | 'closed' | 'all' | 'unspecified';
 export type AiTimeUnit = 'day' | 'week' | 'month' | 'year';
-export type AiTimeDirection = 'current' | 'previous';
-export type AiTagMatch = 'any' | 'all';
-export type AiArchivedScope = 'active' | 'archived' | 'all' | 'unspecified';
-export type AiTaskStatusScope = 'open' | 'closed' | 'all' | 'unspecified';
 
-export interface AiTimePlan {
-  timeExpression: string | null;
-  timeKind: AiTimeKind;
-  direction: AiTimeDirection | null;
-  amount: number | null;
-  unit: AiTimeUnit | null;
-  from: string | null;
-  to: string | null;
-  confidence: number;
-  needsClarification: boolean;
-  normalizedRange?: AiNormalizedTimeRange | null;
-}
-
-export interface AiTagPlan {
-  include: string[];
-  exclude: string[];
-  match: AiTagMatch;
-  unresolved: string[];
-  confidence: number;
-}
-
-export interface AiRetrievalFilters {
-  time: AiTimePlan | null;
-  tags: AiTagPlan;
-  semanticScope: string[];
-  sourceTypes: ('rote' | 'article')[];
-  state: 'private' | 'public' | 'all';
-  archived: boolean | null;
-  archivedScopeSpecified?: boolean;
-}
-
-export interface AiRetrievalComparison {
-  mode: 'time' | 'tag_groups' | 'filter_groups';
-  groups: Array<{
-    label: string;
-    filters: AiRetrievalFilters;
-  }>;
-}
-
-export type PlannerIntent =
-  | 'chat_only'
-  | 'new_search'
-  | 'more'
-  | 'replace_filter'
-  | 'add_filter'
-  | 'exclude_filter'
-  | 'clarify';
-
-export type PlannerReasonCode =
-  | 'greeting'
-  | 'thanks'
-  | 'explicit_tag'
-  | 'bare_tag'
-  | 'explicit_time'
-  | 'note_analysis'
-  | 'more_results'
-  | 'replace_filter'
-  | 'exclude_filter'
-  | 'ambiguous_retrieve'
-  | 'followup_needs_context';
-
-export interface PlannerOutput {
-  intent: PlannerIntent;
-  patch?: {
-    query?: string;
-    tags?: { include?: string[]; exclude?: string[] };
-    semanticScope?: string[];
-    timeExpression?: string;
-    sourceTypes?: ('rote' | 'article')[];
-    archivedScope?: AiArchivedScope;
-    taskStatusScope?: AiTaskStatusScope;
-    comparison?: {
-      mode: 'time' | 'tag_groups' | 'filter_groups';
-      groups: Array<{
-        label: string;
-        tags?: string[];
-        timeExpression?: string;
-        archivedScope?: AiArchivedScope;
-        taskStatusScope?: AiTaskStatusScope;
-      }>;
-    };
-  };
-  confidence: number;
-  reasonCode: PlannerReasonCode;
-}
-
-export interface AiRetrievalPlan {
-  originalMessage?: string;
-  query: string;
-  filters: AiRetrievalFilters;
-  comparison: AiRetrievalComparison | null;
-  confidence: number;
-  needsClarification: boolean;
-  clarificationQuestion: string | null;
-  summary?: string[];
-  retrievalNeeded: boolean;
-  pagination: 'more' | null;
-}
-
-export interface AiNormalizedTimeRange {
+export interface NormalizedTimeRange {
   from: string;
   to: string;
   label: string;
 }
 
-const VALID_SOURCE_TYPES = new Set(['rote', 'article']);
-
-const DEFAULT_FILTERS: AiRetrievalFilters = {
-  time: null,
-  tags: {
-    include: [],
-    exclude: [],
-    match: 'any',
-    unresolved: [],
-    confidence: 1,
-  },
-  semanticScope: [],
-  sourceTypes: ['rote', 'article'],
-  state: 'all',
-  archived: null,
-};
-
-export function createDefaultFilters(): AiRetrievalFilters {
-  return {
-    ...DEFAULT_FILTERS,
-    tags: emptyTagPlan(),
-    semanticScope: [],
-    sourceTypes: [...DEFAULT_FILTERS.sourceTypes],
-  };
+export interface RetrievalScope {
+  ownerId: string;
+  query: string;
+  tags: string[];
+  excludeTags: string[];
+  semanticScope: string[];
+  sourceTypes: AiSourceType[];
+  timeRange: NormalizedTimeRange | null;
+  lifecycleScope: LifecycleScope;
+  taskStatusScope: TaskStatusScope;
+  limit: number;
+  cursor: string | null;
+  excludeIds: string[];
 }
 
-function clampConfidence(value: unknown): number {
-  const numberValue = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(numberValue)) return 0.5;
-  return Math.min(Math.max(numberValue, 0), 1);
+export interface SearchRotesArgs {
+  query?: string;
+  tags?: string[];
+  excludeTags?: string[];
+  semanticScope?: string[];
+  sourceTypes?: AiSourceType[];
+  timeExpression?: string;
+  from?: string;
+  to?: string;
+  lifecycleScope?: LifecycleScope;
+  taskStatusScope?: TaskStatusScope;
+  limit?: number;
+  cursor?: string;
 }
 
-function uniqueStrings(values: unknown): string[] {
-  if (!Array.isArray(values)) return [];
-  return Array.from(
-    new Set(
-      values
-        .map((value) => String(value || '').trim())
-        .filter(Boolean)
-        .map((value) => value.replace(/^#/, ''))
-    )
-  );
+export interface RetrievalSnippet {
+  id: string;
+  sourceType: AiSourceType;
+  sourceId: string;
+  title?: string;
+  tags?: string[];
+  createdAt?: string;
+  similarity: number;
+  text: string;
 }
 
-function normalizeSourceTypes(values: unknown): ('rote' | 'article')[] {
-  const sourceTypes = Array.isArray(values)
-    ? values.filter((value): value is 'rote' | 'article' => VALID_SOURCE_TYPES.has(value))
-    : [];
-  return sourceTypes.length ? Array.from(new Set(sourceTypes)) : ['rote', 'article'];
+export interface RetrievalToolResult {
+  canonicalizedArgs: RetrievalScope;
+  resultCount: number;
+  topSnippets: RetrievalSnippet[];
+  cursor: string | null;
+  warnings: string[];
 }
 
-function emptyTagPlan(): AiTagPlan {
-  return {
-    include: [],
-    exclude: [],
-    match: 'any',
-    unresolved: [],
-    confidence: 1,
-  };
+export interface SearchRotesProbeResult {
+  toolResult: RetrievalToolResult;
+  sources: unknown[];
 }
 
-export function fallbackPlan(message: string): AiRetrievalPlan {
-  return {
-    originalMessage: message,
-    query: message,
-    filters: createDefaultFilters(),
-    comparison: null,
-    confidence: 0.4,
-    needsClarification: false,
-    clarificationQuestion: null,
-    retrievalNeeded: true,
-    pagination: null,
-  };
+export interface PlannerDebugTrace {
+  toolCalls: Array<{
+    step: number;
+    name: string;
+    args: unknown;
+  }>;
+  canonicalizedArgs: RetrievalScope[];
+  warnings: string[];
+  probeCounts: number[];
+  finishReason?: string;
+  fallbackReason?: string;
+  providerError?: string;
+  toolError?: string;
 }
 
-const VALID_INTENTS = new Set<PlannerIntent>([
-  'chat_only',
-  'new_search',
-  'more',
-  'replace_filter',
-  'add_filter',
-  'exclude_filter',
-  'clarify',
-]);
+export interface PlannerAgentResult {
+  originalMessage: string;
+  retrievalNeeded: boolean;
+  scope: RetrievalScope | null;
+  toolResult: RetrievalToolResult | null;
+  sources: unknown[];
+  clarification: { question: string; reason?: string } | null;
+  debugTrace: PlannerDebugTrace;
+}
 
-const VALID_REASON_CODES = new Set<PlannerReasonCode>([
-  'greeting',
-  'thanks',
-  'explicit_tag',
-  'bare_tag',
-  'explicit_time',
-  'note_analysis',
-  'more_results',
-  'replace_filter',
-  'exclude_filter',
-  'ambiguous_retrieve',
-  'followup_needs_context',
-]);
-const VALID_ARCHIVED_SCOPES = new Set<AiArchivedScope>([
+export interface PlannerAgentDto {
+  originalMessage: string;
+  retrievalNeeded: boolean;
+  scope: RetrievalScope | null;
+  toolResult: RetrievalToolResult | null;
+  clarification: { question: string; reason?: string } | null;
+  debugTrace: PlannerDebugTrace;
+}
+
+export type SearchRotesProbeExecutor = (scope: RetrievalScope) => Promise<SearchRotesProbeResult>;
+
+const VALID_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
+const VALID_LIFECYCLE_SCOPES = new Set<LifecycleScope>([
   'active',
   'archived',
   'all',
   'unspecified',
 ]);
-const VALID_TASK_STATUS_SCOPES = new Set<AiTaskStatusScope>([
-  'open',
-  'closed',
-  'all',
-  'unspecified',
-]);
-type ArchivedScopeResolution = boolean | null | undefined;
+const VALID_TASK_STATUS_SCOPES = new Set<TaskStatusScope>(['open', 'closed', 'all', 'unspecified']);
+const DEFAULT_LIMIT = 15;
+const MAX_LIMIT = 50;
+const MAX_STEPS = 6;
+const MAX_TOOL_CALLS = 10;
 
-function normalizeArchivedScopeOption(value: unknown): AiArchivedScope | undefined {
-  return VALID_ARCHIVED_SCOPES.has(value as AiArchivedScope)
-    ? (value as AiArchivedScope)
-    : undefined;
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
-function normalizeTaskStatusScopeOption(value: unknown): AiTaskStatusScope | undefined {
-  return VALID_TASK_STATUS_SCOPES.has(value as AiTaskStatusScope)
-    ? (value as AiTaskStatusScope)
-    : undefined;
+function uniqueStrings(value: unknown, limit = 30): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === 'string' ? item.trim().replace(/^#/, '') : ''))
+        .filter(Boolean)
+    )
+  ).slice(0, limit);
 }
 
-export function sanitizePlannerOutput(raw: any, message: string): PlannerOutput {
-  const intent: PlannerIntent = VALID_INTENTS.has(raw?.intent) ? raw.intent : 'new_search';
-  const confidence = clampConfidence(raw?.confidence);
-  const reasonCode: PlannerReasonCode = VALID_REASON_CODES.has(raw?.reasonCode)
-    ? raw.reasonCode
-    : 'ambiguous_retrieve';
-
-  let patch: PlannerOutput['patch'];
-  if (raw?.patch && typeof raw.patch === 'object') {
-    patch = {};
-    if (typeof raw.patch.query === 'string') patch.query = raw.patch.query.trim();
-    if (raw.patch.tags && typeof raw.patch.tags === 'object') {
-      patch.tags = {
-        include: uniqueStrings(raw.patch.tags.include),
-        exclude: uniqueStrings(raw.patch.tags.exclude),
-      };
-    }
-    if (Array.isArray(raw.patch.semanticScope)) {
-      patch.semanticScope = uniqueStrings(raw.patch.semanticScope).slice(0, 20);
-    }
-    if (typeof raw.patch.timeExpression === 'string')
-      patch.timeExpression = raw.patch.timeExpression;
-    if (Array.isArray(raw.patch.sourceTypes))
-      patch.sourceTypes = normalizeSourceTypes(raw.patch.sourceTypes);
-    patch.archivedScope = normalizeArchivedScopeOption(raw.patch.archivedScope);
-    patch.taskStatusScope = normalizeTaskStatusScopeOption(raw.patch.taskStatusScope);
-    if (raw.patch.comparison && typeof raw.patch.comparison === 'object') {
-      const comp = raw.patch.comparison;
-      const validModes = new Set(['time', 'tag_groups', 'filter_groups']);
-      patch.comparison = {
-        mode: validModes.has(comp.mode) ? comp.mode : 'filter_groups',
-        groups: Array.isArray(comp.groups)
-          ? comp.groups.slice(0, 4).map((g: any) => ({
-              label: String(g?.label || '').trim() || 'Group',
-              tags: Array.isArray(g?.tags) ? uniqueStrings(g.tags) : undefined,
-              timeExpression: typeof g?.timeExpression === 'string' ? g.timeExpression : undefined,
-              archivedScope: normalizeArchivedScopeOption(g?.archivedScope),
-              taskStatusScope: normalizeTaskStatusScopeOption(g?.taskStatusScope),
-            }))
-          : [],
-      };
-    }
-  }
-
-  // chat_only with low confidence → downgrade to new_search
-  if (intent === 'chat_only' && confidence < 0.8) {
-    return {
-      intent: 'new_search',
-      patch: patch || { query: message },
-      confidence,
-      reasonCode: 'ambiguous_retrieve',
-    };
-  }
-
-  return { intent, patch, confidence, reasonCode };
+function clampLimit(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_LIMIT;
+  return Math.min(Math.max(Math.floor(numeric), 1), MAX_LIMIT);
 }
 
-function parsePlannerJson(text: string): any {
-  const trimmed = text
-    .trim()
-    .replace(/^```(?:json)?/i, '')
-    .replace(/```$/i, '')
-    .trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error('Planner did not return valid JSON');
-  }
+function normalizeSourceTypes(value: unknown, warnings: string[]): AiSourceType[] {
+  if (!Array.isArray(value)) return ['rote', 'article'];
+  const valid = uniqueStrings(value)
+    .filter((type): type is AiSourceType => VALID_SOURCE_TYPES.has(type as AiSourceType))
+    .slice(0, 2);
+  const invalid = uniqueStrings(value).filter(
+    (type) => !VALID_SOURCE_TYPES.has(type as AiSourceType)
+  );
+  invalid.forEach((type) => warnings.push(`invalid_source_type:${type}`));
+  return valid.length ? valid : ['rote', 'article'];
+}
+
+function normalizeLifecycleScope(value: unknown): LifecycleScope {
+  return VALID_LIFECYCLE_SCOPES.has(value as LifecycleScope)
+    ? (value as LifecycleScope)
+    : 'unspecified';
+}
+
+function normalizeTaskStatusScope(value: unknown): TaskStatusScope {
+  return VALID_TASK_STATUS_SCOPES.has(value as TaskStatusScope)
+    ? (value as TaskStatusScope)
+    : 'unspecified';
+}
+
+export function lifecycleScopeToArchived(scope: LifecycleScope): boolean | null {
+  if (scope === 'active') return false;
+  if (scope === 'archived') return true;
+  return null;
 }
 
 export async function getUserRoteTags(ownerId: string): Promise<string[]> {
@@ -330,6 +185,24 @@ export async function getUserRoteTags(ownerId: string): Promise<string[]> {
   return Array.from(
     new Set(rows.flatMap((row) => (Array.isArray(row.tags) ? row.tags : [])).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
+}
+
+export async function getUserRoteTagCounts(
+  ownerId: string
+): Promise<Array<{ name: string; count: number }>> {
+  const rows = (await db
+    .select({ tags: rotes.tags })
+    .from(rotes)
+    .where(sql`${rotes.authorid} = ${ownerId}`)) as Array<{ tags: string[] | null }>;
+  const counts = new Map<string, number>();
+  rows.forEach((row) => {
+    (Array.isArray(row.tags) ? row.tags : []).forEach((tag) => {
+      if (tag) counts.set(tag, (counts.get(tag) || 0) + 1);
+    });
+  });
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
 function getShanghaiToday(): Date {
@@ -375,229 +248,15 @@ function addMonths(date: Date, months: number): Date {
   return next;
 }
 
-function monthRange(year: number, monthIndex: number): AiNormalizedTimeRange {
+function monthRange(year: number, monthIndex: number, label: string): NormalizedTimeRange {
   const start = new Date(Date.UTC(year, monthIndex, 1));
   const end = new Date(Date.UTC(year, monthIndex + 1, 0));
-  return {
-    from: startOfDay(start),
-    to: endOfDay(end),
-    label: `${year}-${pad(monthIndex + 1)}`,
-  };
-}
-
-function hasAllTimeExpression(message: string, time?: AiTimePlan | null): boolean {
-  const expression = `${message} ${time?.timeExpression || ''}`;
-  return /全部|长期|历史|所有/.test(expression) || time?.timeKind === 'all_time';
-}
-
-function hasAmbiguousTimeExpression(time?: AiTimePlan | null): boolean {
-  const expression = time?.timeExpression || '';
-  return (
-    time?.timeKind === 'ambiguous' &&
-    /(那段|开始|以后|之前|低落|这阵子|那时候|那会儿)/.test(expression)
-  );
-}
-
-function archivedFromDomainScopes(
-  archivedScope?: AiArchivedScope,
-  taskStatusScope?: AiTaskStatusScope
-): ArchivedScopeResolution {
-  if (archivedScope === 'active') return false;
-  if (archivedScope === 'archived') return true;
-  if (archivedScope === 'all') return null;
-
-  if (taskStatusScope === 'open') return false;
-  if (taskStatusScope === 'closed') return true;
-  if (taskStatusScope === 'all') return null;
-
-  return undefined;
-}
-
-function applyArchivedScopeResolution<T extends { archived: boolean | null }>(
-  filters: T,
-  resolution: ArchivedScopeResolution
-): T & { archivedScopeSpecified?: boolean } {
-  if (resolution === undefined) return filters;
-  return {
-    ...filters,
-    archived: resolution,
-    archivedScopeSpecified: true,
-  };
-}
-
-function isPlainRecentExpression(expression: string): boolean {
-  if (!/(最近|近期|这段时间|recently)/i.test(expression)) return false;
-  return !/(\d+|[一二两三四五六七八九十]+)\s*(天|日|周|星期|个月|月|年|days?|weeks?|months?|years?)/i.test(
-    expression
-  );
-}
-
-function normalizeTimeRange(
-  message: string,
-  time?: AiTimePlan | null
-): { time: AiTimePlan | null; needsClarification: boolean } {
-  if (hasAllTimeExpression(message, time)) {
-    return {
-      time: {
-        ...(time || {
-          timeExpression: '全部',
-          timeKind: 'all_time',
-          direction: null,
-          amount: null,
-          unit: null,
-          from: null,
-          to: null,
-          confidence: 1,
-          needsClarification: false,
-        }),
-        timeKind: 'all_time',
-        normalizedRange: null,
-        needsClarification: false,
-      },
-      needsClarification: false,
-    };
-  }
-
-  if (hasAmbiguousTimeExpression(time)) {
-    return { time: time || null, needsClarification: true };
-  }
-
-  const today = getShanghaiToday();
-  const expression = `${message} ${time?.timeExpression || ''}`;
-  const useDefaultRecentRange = isPlainRecentExpression(message);
-  let range: AiNormalizedTimeRange | null = null;
-  let normalized = time;
-
-  if (/今天|今日|today/i.test(expression)) {
-    range = { from: startOfDay(today), to: endOfDay(today), label: '今天' };
-    normalized = {
-      ...(time || {}),
-      timeExpression: time?.timeExpression || '今天',
-      timeKind: 'calendar',
-      direction: 'current',
-      amount: 1,
-      unit: 'day',
-      confidence: Math.max(time?.confidence || 0, 0.95),
-      needsClarification: false,
-      from: range.from,
-      to: range.to,
-    } as AiTimePlan;
-  } else if (/昨天|昨日|yesterday/i.test(expression)) {
-    const yesterday = addDays(today, -1);
-    range = { from: startOfDay(yesterday), to: endOfDay(yesterday), label: '昨天' };
-    normalized = {
-      ...(time || {}),
-      timeExpression: time?.timeExpression || '昨天',
-      timeKind: 'calendar',
-      direction: 'previous',
-      amount: 1,
-      unit: 'day',
-      confidence: Math.max(time?.confidence || 0, 0.95),
-      needsClarification: false,
-      from: range.from,
-      to: range.to,
-    } as AiTimePlan;
-  } else if (/上个月|上月|last month/i.test(expression)) {
-    range = monthRange(today.getUTCFullYear(), today.getUTCMonth() - 1);
-    normalized = {
-      ...(time || {}),
-      timeExpression: time?.timeExpression || '上个月',
-      timeKind: 'calendar',
-      direction: 'previous',
-      amount: 1,
-      unit: 'month',
-      confidence: Math.max(time?.confidence || 0, 0.95),
-      needsClarification: false,
-      from: range.from,
-      to: range.to,
-    } as AiTimePlan;
-  } else if (/本月|这个月|this month/i.test(expression)) {
-    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
-    range = { from: startOfDay(start), to: endOfDay(today), label: '本月' };
-    normalized = {
-      ...(time || {}),
-      timeExpression: time?.timeExpression || '本月',
-      timeKind: 'calendar',
-      direction: 'current',
-      amount: 1,
-      unit: 'month',
-      confidence: Math.max(time?.confidence || 0, 0.95),
-      needsClarification: false,
-      from: range.from,
-      to: range.to,
-    } as AiTimePlan;
-  } else if (!useDefaultRecentRange && time?.timeKind === 'rolling' && time.amount && time.unit) {
-    const days =
-      time.unit === 'day'
-        ? time.amount
-        : time.unit === 'week'
-          ? time.amount * 7
-          : time.unit === 'month'
-            ? null
-            : time.amount * 365;
-    const start = days === null ? addMonths(today, -time.amount) : addDays(today, -days);
-    range = {
-      from: startOfDay(start),
-      to: endOfDay(today),
-      label: time.timeExpression || `最近${time.amount}${time.unit}`,
-    };
-    normalized = {
-      ...time,
-      from: range.from,
-      to: range.to,
-      needsClarification: false,
-    };
-  } else if (time?.timeKind === 'explicit_range' && time.from && time.to) {
-    range = {
-      from: time.from.includes('T') ? time.from : `${time.from}T00:00:00+08:00`,
-      to: time.to.includes('T') ? time.to : `${time.to}T23:59:59+08:00`,
-      label: time.timeExpression || '指定范围',
-    };
-    normalized = { ...time, from: range.from, to: range.to, needsClarification: false };
-  } else if (time) {
-    // Time was provided but didn't match any specific pattern — apply default window
-    const days = 90;
-    const start = addDays(today, -days);
-    range = {
-      from: startOfDay(start),
-      to: endOfDay(today),
-      label: `最近${days}天`,
-    };
-    normalized = {
-      timeExpression: time?.timeExpression || '最近',
-      timeKind: 'rolling',
-      direction: 'current',
-      amount: days,
-      unit: 'day',
-      from: range.from,
-      to: range.to,
-      confidence: time?.confidence || 0.75,
-      needsClarification: false,
-    };
-  }
-  // else: no time specified → leave normalized = null, no time restriction
-
-  return {
-    time: normalized ? { ...normalized, normalizedRange: range } : null,
-    needsClarification: false,
-  };
-}
-
-function extractExplicitHashTags(message: string): string[] {
-  const matches = message.matchAll(/#([\p{L}\p{N}_-]+)/gu);
-  return Array.from(matches, (match) => match[1]).filter(Boolean);
-}
-
-function extractExplicitLabelTags(message: string): string[] {
-  const matches = message.matchAll(/标签\s*[:：#"]?\s*([\p{L}\p{N}_-]+)/gu);
-  return Array.from(matches, (match) => match[1]).filter(Boolean);
+  return { from: startOfDay(start), to: endOfDay(end), label };
 }
 
 function chineseNumberToInt(value: string): number | null {
-  const trimmed = value.trim();
-  const numeric = Number(trimmed);
+  const numeric = Number(value);
   if (Number.isFinite(numeric)) return Math.max(1, Math.floor(numeric));
-
   const digits: Record<string, number> = {
     零: 0,
     一: 1,
@@ -611,509 +270,53 @@ function chineseNumberToInt(value: string): number | null {
     八: 8,
     九: 9,
   };
-  if (trimmed in digits) return digits[trimmed];
-  if (trimmed === '十') return 10;
-  if (trimmed.startsWith('十')) {
-    const ones = digits[trimmed.slice(1)] ?? 0;
-    return 10 + ones;
-  }
-  if (trimmed.includes('十')) {
-    const [tensText, onesText] = trimmed.split('十');
-    const tens = digits[tensText] ?? 1;
-    const ones = onesText ? (digits[onesText] ?? 0) : 0;
-    return tens * 10 + ones;
+  if (value in digits) return digits[value];
+  if (value === '十') return 10;
+  if (value.startsWith('十')) return 10 + (digits[value.slice(1)] ?? 0);
+  if (value.includes('十')) {
+    const [tensText, onesText] = value.split('十');
+    return (digits[tensText] ?? 1) * 10 + (onesText ? (digits[onesText] ?? 0) : 0);
   }
   return null;
 }
 
-function tagExists(tag: string, availableTags: Set<string>): boolean {
-  return availableTags.has(tag);
+function normalizeDateInput(value: string, end = false): string {
+  const normalized = value.trim().replace(/[/.]/g, '-');
+  if (normalized.includes('T')) return normalized;
+  return `${normalized}${end ? 'T23:59:59+08:00' : 'T00:00:00+08:00'}`;
 }
 
-function normalizeTagScope(
-  message: string,
-  filters: AiRetrievalFilters,
-  availableTags: string[],
-  options: { autoAddExplicitTags?: boolean } = {}
-): { filters: AiRetrievalFilters; needsClarification: boolean } {
-  const autoAddExplicitTags = options.autoAddExplicitTags !== false;
-  const availableTagSet = new Set(availableTags);
-  const explicitTags = new Set([
-    ...extractExplicitHashTags(message),
-    ...extractExplicitLabelTags(message),
-  ]);
-  const semanticScope = new Set(filters.semanticScope);
-  const unresolved = new Set(filters.tags.unresolved);
-
-  const include = filters.tags.include.filter((tag) => {
-    if (tagExists(tag, availableTagSet)) return true;
-    if (explicitTags.has(tag)) {
-      unresolved.add(tag);
-      return false;
-    }
-    semanticScope.add(tag);
-    return false;
-  });
-  const exclude = filters.tags.exclude.filter((tag) => {
-    if (tagExists(tag, availableTagSet)) return true;
-    if (explicitTags.has(tag)) unresolved.add(tag);
-    return false;
-  });
-
-  if (autoAddExplicitTags) {
-    explicitTags.forEach((tag) => {
-      if (!tagExists(tag, availableTagSet)) {
-        unresolved.add(tag);
-        return;
-      }
-      if (!include.includes(tag) && !exclude.includes(tag)) {
-        include.push(tag);
-      }
-    });
-  }
-
-  return {
-    filters: {
-      ...filters,
-      semanticScope: Array.from(semanticScope),
-      tags: {
-        ...filters.tags,
-        include: Array.from(new Set(include)),
-        exclude: Array.from(new Set(exclude)),
-        unresolved: Array.from(unresolved),
-      },
-    },
-    needsClarification: unresolved.size > 0,
-  };
-}
-
-function normalizeFilterScope(
-  message: string,
-  filters: AiRetrievalFilters,
-  availableTags: string[],
-  options: { autoAddExplicitTags?: boolean } = {}
-): { filters: AiRetrievalFilters; needsClarification: boolean } {
-  const tagResult = normalizeTagScope(message, filters, availableTags, options);
-  const timeResult = normalizeTimeRange(message, tagResult.filters.time);
-  return {
-    filters: {
-      ...tagResult.filters,
-      time: timeResult.time,
-      archived: tagResult.filters.archived,
-    },
-    needsClarification: tagResult.needsClarification || timeResult.needsClarification,
-  };
-}
-
-function normalizeComparison(
-  message: string,
-  comparison: AiRetrievalComparison | null,
-  availableTags: string[]
-): { comparison: AiRetrievalComparison | null; needsClarification: boolean } {
-  if (!comparison) return { comparison: null, needsClarification: false };
-  let needsClarification = false;
-  const groups = comparison.groups.map((group) => {
-    const result = normalizeFilterScope(message, group.filters, availableTags, {
-      autoAddExplicitTags: false,
-    });
-    needsClarification = needsClarification || result.needsClarification;
+export function canonicalizeTimeRange(args: SearchRotesArgs): NormalizedTimeRange | null {
+  const from = typeof args.from === 'string' ? args.from.trim() : '';
+  const to = typeof args.to === 'string' ? args.to.trim() : '';
+  if (from && to) {
     return {
-      ...group,
-      filters: result.filters,
-    };
-  });
-  return {
-    comparison: {
-      ...comparison,
-      groups,
-    },
-    needsClarification,
-  };
-}
-
-function collectUnresolvedTags(plan: AiRetrievalPlan): string[] {
-  const unresolved = new Set(plan.filters.tags.unresolved);
-  plan.comparison?.groups.forEach((group) => {
-    group.filters.tags.unresolved.forEach((tag) => unresolved.add(tag));
-  });
-  return Array.from(unresolved);
-}
-
-function mapFiltersTagsToSemanticScope(filters: AiRetrievalFilters): AiRetrievalFilters {
-  if (filters.tags.unresolved.length === 0) return filters;
-  return {
-    ...filters,
-    semanticScope: Array.from(new Set([...filters.semanticScope, ...filters.tags.unresolved])),
-    tags: {
-      ...filters.tags,
-      unresolved: [],
-    },
-  };
-}
-
-function buildClarificationQuestion(plan: AiRetrievalPlan): string {
-  const unresolved = collectUnresolvedTags(plan);
-  if (unresolved.length > 0) {
-    return 'error_clarify_unresolved_tags';
-  }
-  if (plan.filters.time?.needsClarification) {
-    return 'error_clarify_ambiguous_time';
-  }
-  return plan.clarificationQuestion || 'error_clarify_ambiguous_scope';
-}
-
-function buildSummary(_plan: AiRetrievalPlan): string[] {
-  // Plan summary is rendered dynamically by the frontend (ScopeSummary) using i18n
-  return [];
-}
-
-const COMPLEX_MODIFIER_PATTERNS = [
-  /不要|排除|无关|不是/,
-  /换成|改成|用/,
-  /再加|加上/,
-  /对比|比较|区别/,
-  /待办|todo|任务/,
-  /分析|总结|风格|压力|情绪/,
-];
-
-export function hasComplexModifiers(message: string): boolean {
-  // Strip #hashtag references so tag names don't false-positive as modifiers
-  const stripped = message.replace(/#[\p{L}\p{N}_-]+/gu, '');
-  return COMPLEX_MODIFIER_PATTERNS.some((p) => p.test(stripped));
-}
-
-export function buildNewSearchPlan(
-  patch: PlannerOutput['patch'],
-  availableTags: string[]
-): AiRetrievalPlan {
-  const message = patch?.query || '';
-  const filters = createDefaultFilters();
-  if (patch?.tags?.include) filters.tags.include = patch.tags.include;
-  if (patch?.tags?.exclude) filters.tags.exclude = patch.tags.exclude;
-  if (patch?.semanticScope) filters.semanticScope = patch.semanticScope;
-  if (patch?.sourceTypes) filters.sourceTypes = patch.sourceTypes;
-  if (patch?.timeExpression) {
-    filters.time = detectFastTime(patch.timeExpression);
-  }
-  const archivedFromScopes = archivedFromDomainScopes(patch?.archivedScope, patch?.taskStatusScope);
-  const scopedFilters = applyArchivedScopeResolution(filters, archivedFromScopes);
-  filters.tags.match = filters.tags.include.length > 1 ? 'all' : 'any';
-
-  let comparison: AiRetrievalComparison | null = null;
-  if (patch?.comparison && patch.comparison.groups.length >= 2) {
-    comparison = {
-      mode: patch.comparison.mode,
-      groups: patch.comparison.groups.map((g) => {
-        const groupFilters = createDefaultFilters();
-        if (g.tags) groupFilters.tags.include = g.tags;
-        if (g.timeExpression) groupFilters.time = detectFastTime(g.timeExpression);
-        const groupArchivedFromScopes = archivedFromDomainScopes(
-          g.archivedScope,
-          g.taskStatusScope
-        );
-        const scopedGroupFilters = applyArchivedScopeResolution(
-          groupFilters,
-          groupArchivedFromScopes
-        );
-        groupFilters.tags.match = groupFilters.tags.include.length > 1 ? 'all' : 'any';
-        return { label: g.label, filters: scopedGroupFilters };
-      }),
+      from: normalizeDateInput(from),
+      to: normalizeDateInput(to, true),
+      label: `${from} 到 ${to}`,
     };
   }
 
-  return normalizePlan(
-    message,
-    {
-      originalMessage: message,
-      query: message,
-      filters: scopedFilters,
-      comparison,
-      confidence: 0.9,
-      needsClarification: false,
-      clarificationQuestion: null,
-      retrievalNeeded: true,
-      pagination: null,
-    },
-    availableTags
-  );
-}
+  const expression = typeof args.timeExpression === 'string' ? args.timeExpression.trim() : '';
+  if (!expression) return null;
 
-export function mergePlan(
-  previousPlan: AiRetrievalPlan,
-  patch: PlannerOutput['patch'] | undefined,
-  mode: 'replace' | 'add' | 'exclude',
-  _availableTags: string[]
-): AiRetrievalPlan {
-  if (!patch) return previousPlan;
-  const merged = { ...previousPlan, originalMessage: patch.query || previousPlan.originalMessage };
-
-  if (patch.query) merged.query = patch.query;
-  if (patch.semanticScope) {
-    merged.filters = {
-      ...merged.filters,
-      semanticScope: Array.from(
-        new Set([...merged.filters.semanticScope, ...(patch.semanticScope || [])])
-      ).slice(0, 20),
-    };
+  const today = getShanghaiToday();
+  if (/今天|今日|today/i.test(expression)) {
+    return { from: startOfDay(today), to: endOfDay(today), label: '今天' };
+  }
+  if (/昨天|昨日|yesterday/i.test(expression)) {
+    const yesterday = addDays(today, -1);
+    return { from: startOfDay(yesterday), to: endOfDay(yesterday), label: '昨天' };
+  }
+  if (/本月|这个月|this month/i.test(expression)) {
+    const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+    return { from: startOfDay(start), to: endOfDay(today), label: '本月' };
+  }
+  if (/上个月|上月|last month/i.test(expression)) {
+    return monthRange(today.getUTCFullYear(), today.getUTCMonth() - 1, '上个月');
   }
 
-  if (patch.timeExpression) {
-    merged.filters = { ...merged.filters, time: detectFastTime(patch.timeExpression) };
-  }
-
-  const archivedFromScopes = archivedFromDomainScopes(patch.archivedScope, patch.taskStatusScope);
-  merged.filters = applyArchivedScopeResolution(merged.filters, archivedFromScopes);
-
-  if (patch.tags) {
-    const prevInclude = new Set(merged.filters.tags.include);
-    const prevExclude = new Set(merged.filters.tags.exclude);
-    const patchInclude = new Set(patch.tags.include || []);
-    const patchExclude = new Set(patch.tags.exclude || []);
-
-    if (mode === 'replace') {
-      merged.filters = {
-        ...merged.filters,
-        tags: {
-          ...merged.filters.tags,
-          include: Array.from(patchInclude),
-          exclude: Array.from(patchExclude),
-          match: patchInclude.size > 1 ? 'all' : 'any',
-        },
-      };
-    } else if (mode === 'add') {
-      patchInclude.forEach((t) => prevInclude.add(t));
-      merged.filters = {
-        ...merged.filters,
-        tags: {
-          ...merged.filters.tags,
-          include: Array.from(prevInclude),
-          match: prevInclude.size > 1 ? 'all' : 'any',
-        },
-      };
-    } else if (mode === 'exclude') {
-      patchExclude.forEach((t) => {
-        prevExclude.add(t);
-        prevInclude.delete(t);
-      });
-      merged.filters = {
-        ...merged.filters,
-        tags: {
-          ...merged.filters.tags,
-          include: Array.from(prevInclude),
-          exclude: Array.from(prevExclude),
-          match: prevInclude.size > 1 ? 'all' : 'any',
-        },
-      };
-    }
-  }
-
-  merged.summary = buildSummary(merged);
-  return merged;
-}
-
-export function reducePlan(
-  output: PlannerOutput,
-  previousPlan: AiRetrievalPlan | null,
-  availableTags: string[]
-): AiRetrievalPlan {
-  // chat_only with low confidence → downgrade to new_search
-  if (output.intent === 'chat_only' && output.confidence < 0.8) {
-    output = { ...output, intent: 'new_search', reasonCode: 'ambiguous_retrieve' };
-  }
-
-  switch (output.intent) {
-    case 'chat_only':
-      return { ...fallbackPlan(''), retrievalNeeded: false, pagination: null };
-
-    case 'new_search':
-      return buildNewSearchPlan(output.patch, availableTags);
-
-    case 'more':
-      if (!previousPlan) {
-        return {
-          ...fallbackPlan(output.patch?.query || ''),
-          needsClarification: true,
-          clarificationQuestion: 'error_clarify_more_results',
-          retrievalNeeded: false,
-          pagination: null,
-        };
-      }
-      return { ...previousPlan, pagination: 'more', retrievalNeeded: true };
-
-    case 'replace_filter':
-      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
-      return mergePlan(previousPlan, output.patch, 'replace', availableTags);
-
-    case 'add_filter':
-      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
-      return mergePlan(previousPlan, output.patch, 'add', availableTags);
-
-    case 'exclude_filter':
-      if (!previousPlan) return buildNewSearchPlan(output.patch, availableTags);
-      return mergePlan(previousPlan, output.patch, 'exclude', availableTags);
-
-    case 'clarify':
-      return {
-        ...fallbackPlan(''),
-        needsClarification: true,
-        clarificationQuestion: 'error_clarify_ambiguous_scope',
-        retrievalNeeded: false,
-        pagination: null,
-      };
-  }
-}
-
-function normalizePlan(
-  message: string,
-  rawPlan: AiRetrievalPlan,
-  availableTags: string[]
-): AiRetrievalPlan {
-  const filterResult = normalizeFilterScope(message, rawPlan.filters, availableTags);
-  const comparisonResult = normalizeComparison(message, rawPlan.comparison, availableTags);
-  const normalized: AiRetrievalPlan = {
-    ...rawPlan,
-    originalMessage: message,
-    filters: filterResult.filters,
-    comparison: comparisonResult.comparison,
-  };
-  const comparisonMissing =
-    rawPlan.needsClarification &&
-    /对比|相比|比较|变化|compare/i.test(message) &&
-    (!comparisonResult.comparison || comparisonResult.comparison.groups.length < 2);
-  const needsClarification =
-    filterResult.needsClarification ||
-    comparisonResult.needsClarification ||
-    comparisonMissing ||
-    normalized.confidence < 0.35;
-  normalized.needsClarification = needsClarification;
-  normalized.clarificationQuestion = needsClarification
-    ? buildClarificationQuestion(normalized)
-    : null;
-  normalized.summary = buildSummary(normalized);
-  return normalized;
-}
-
-function buildPlannerPrompt(today: string, availableTags: string[]): string {
-  return `You are the Rote AI retrieval planner. Today is ${today} in timezone Asia/Shanghai (+08:00). Return strict JSON only.
-
-Available tags for this user: ${JSON.stringify(availableTags)}.
-Available sourceTypes: ["rote","article"].
-
-Schema:
-{
-  "intent": "chat_only" | "new_search" | "more" | "replace_filter" | "add_filter" | "exclude_filter" | "clarify",
-  "patch": {
-    "query": string (optional - the semantic search query; write the user's real information need, not an empty string),
-    "tags": {"include": string[], "exclude": string[]} (optional),
-    "semanticScope": string[] (optional - soft topic keywords that are NOT hard tags),
-    "timeExpression": string (optional - e.g. "最近90天", "本月"),
-    "sourceTypes": ("rote" | "article")[] (optional),
-    "archivedScope": "active" | "archived" | "all" | "unspecified" (optional - Rote lifecycle filter),
-    "taskStatusScope": "open" | "closed" | "all" | "unspecified" (optional - Rote task/open-loop status),
-    "comparison": {"mode": "tag_groups" | "filter_groups" | "time", "groups": [{"label": string, "tags": string[] (optional), "timeExpression": string (optional), "archivedScope": string (optional), "taskStatusScope": string (optional)}]} (optional - required for compare/comparison questions)
-  },
-  "confidence": number (0-1),
-  "reasonCode": "greeting" | "thanks" | "explicit_tag" | "bare_tag" | "explicit_time" | "note_analysis" | "more_results" | "replace_filter" | "exclude_filter" | "ambiguous_retrieve" | "followup_needs_context"
-}
-
-INTENT RULES:
-- "chat_only": Pure chat/greeting with NO note retrieval needed ("谢谢", "你好", "哈哈", "ok"). Confidence must be >= 0.8.
-- IMPORTANT: If the previous assistant turn had retrieved sources, messages like "你觉得呢", "那怎么办", "为什么" are follow-ups that need context — use "new_search", NOT "chat_only".
-- "new_search": New query — note content search, bare tag names matching available tags, analysis requests ("所有笔记里有哪些开心的", "大喜", "我最近压力大吗").
-- "more": User wants additional results ("看看更多", "还有吗", "more", "多来几条", "还有别的吗", "继续看", "再给我一些"). Do NOT modify patch filters.
-- "replace_filter": Replace a filter ("换成工作" → patch.tags.include=["工作"], "用上个月" → patch.timeExpression="上个月"). Only fill the field being replaced.
-- "add_filter": Add a filter ("再加上生活" → patch.tags.include=["生活"]).
-- "exclude_filter": Exclude a filter ("不要工作" → patch.tags.exclude=["工作"]).
-- "clarify": Message too ambiguous to determine intent.
-
-PATCH RULES:
-- patch only fills fields that CHANGE. Do NOT copy the full plan.
-- The model decides the retrieval strategy with query, semanticScope, filters, comparison, and sourceTypes. There is no operation enum.
-- For broad analysis requests (MBTI/personality, mood, stress, style, timeline, review), write an evidence-seeking query and soft semanticScope values that can retrieve diverse supporting notes. Do not leave query empty unless this is a pure hard-filter search.
-- Bare tag names matching available tags → intent="new_search", patch.tags.include=["tagname"].
-- Topic words that are not explicit tags, such as 产品/生活/AI/技术, should go into patch.semanticScope instead of patch.tags unless they exactly match an available tag or the user explicitly says #tag/标签.
-- Rote domain scopes: archivedScope filters the note lifecycle ("active" = not archived, "archived" = archived notes, "all" = both). taskStatusScope describes task semantics ("open" = unfinished/open task, "closed" = completed/closed task, "all" = both).
-- Archived notes are considered closed/completed for task analysis. For open-loop/TODO/Flag queries, set patch.taskStatusScope="open". If the user explicitly asks for archived/completed tasks, set taskStatusScope="closed" or archivedScope="archived".
-- Do NOT set archivedScope just because the word "归档/archive" is the topic of the note or feature (e.g. "归档功能 bug"). In that case keep archivedScope="unspecified" or omit it and keep the word in query.
-- For compare/comparison questions, fill patch.comparison with mode="tag_groups" (for comparing tags), mode="time" (for comparing time periods), or mode="filter_groups". Each group needs a label and its own tags/timeExpression/scopes.
-- 笔记/记录 → patch.sourceTypes=["rote"]; 文章/长文 → ["article"].
-
-CONFIDENCE:
-- When uncertain, prefer "new_search" over "chat_only" to avoid missing retrieval.
-- chat_only confidence < 0.8 will be auto-downgraded to new_search.
-
-REASON CODE:
-- Use reasonCode to annotate WHY you chose this intent, for debugging and evaluation.`;
-}
-
-function detectFastTime(message: string): AiTimePlan | null {
-  if (/全部|长期|历史|所有/.test(message)) {
-    return {
-      timeExpression: '全部',
-      timeKind: 'all_time',
-      direction: null,
-      amount: null,
-      unit: null,
-      from: null,
-      to: null,
-      confidence: 0.95,
-      needsClarification: false,
-    };
-  }
-  if (/今天|今日|today/i.test(message)) {
-    return {
-      timeExpression: '今天',
-      timeKind: 'calendar',
-      direction: 'current',
-      amount: 1,
-      unit: 'day',
-      from: null,
-      to: null,
-      confidence: 0.95,
-      needsClarification: false,
-    };
-  }
-  if (/昨天|昨日|yesterday/i.test(message)) {
-    return {
-      timeExpression: '昨天',
-      timeKind: 'calendar',
-      direction: 'previous',
-      amount: 1,
-      unit: 'day',
-      from: null,
-      to: null,
-      confidence: 0.95,
-      needsClarification: false,
-    };
-  }
-  if (/本月|这个月|this month/i.test(message)) {
-    return {
-      timeExpression: '本月',
-      timeKind: 'calendar',
-      direction: 'current',
-      amount: 1,
-      unit: 'month',
-      from: null,
-      to: null,
-      confidence: 0.95,
-      needsClarification: false,
-    };
-  }
-  if (/上个月|上月|last month/i.test(message)) {
-    return {
-      timeExpression: '上个月',
-      timeKind: 'calendar',
-      direction: 'previous',
-      amount: 1,
-      unit: 'month',
-      from: null,
-      to: null,
-      confidence: 0.95,
-      needsClarification: false,
-    };
-  }
-
-  const rollingMatch = message.match(
+  const rollingMatch = expression.match(
     /(?:最近|近|过去|前)\s*(\d+|[一二两三四五六七八九十]+)\s*(天|日|周|星期|个月|月|年|days?|weeks?|months?|years?)/i
   );
   if (rollingMatch) {
@@ -1128,180 +331,409 @@ function detectFastTime(message: string): AiTimePlan | null {
             ? 'year'
             : 'month';
     if (amount) {
-      return {
-        timeExpression: rollingMatch[0],
-        timeKind: 'rolling',
-        direction: 'current',
-        amount,
-        unit,
-        from: null,
-        to: null,
-        confidence: 0.95,
-        needsClarification: false,
-      };
+      const start =
+        unit === 'month'
+          ? addMonths(today, -amount)
+          : addDays(
+              today,
+              -(unit === 'day' ? amount : unit === 'week' ? amount * 7 : amount * 365)
+            );
+      return { from: startOfDay(start), to: endOfDay(today), label: rollingMatch[0] };
     }
   }
 
-  const explicitRange = message.match(
+  const explicitRange = expression.match(
     /(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\s*(?:到|至|~|-|—)\s*(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})/
   );
   if (explicitRange) {
     return {
-      timeExpression: explicitRange[0],
-      timeKind: 'explicit_range',
-      direction: null,
-      amount: null,
-      unit: null,
-      from: explicitRange[1].replace(/[/.]/g, '-'),
-      to: explicitRange[2].replace(/[/.]/g, '-'),
-      confidence: 0.95,
-      needsClarification: false,
+      from: normalizeDateInput(explicitRange[1]),
+      to: normalizeDateInput(explicitRange[2], true),
+      label: explicitRange[0],
     };
   }
 
   return null;
 }
 
-export function createFastRetrievalPlan(
-  message: string,
-  availableTags: string[]
-): AiRetrievalPlan | null {
-  const tags = [...extractExplicitHashTags(message), ...extractExplicitLabelTags(message)];
-  const time = detectFastTime(message);
+export function canonicalizeSearchRotesArgs(params: {
+  ownerId: string;
+  args: SearchRotesArgs;
+  availableTags: string[];
+  excludeIds?: string[];
+}): { scope: RetrievalScope; warnings: string[] } {
+  const warnings: string[] = [];
+  const availableTagSet = new Set(params.availableTags);
+  const semanticScope = new Set(uniqueStrings(params.args.semanticScope));
+  const tags: string[] = [];
+  const excludeTags: string[] = [];
 
-  // Only fast-path when there are explicit signals AND no complex modifiers
-  if ((tags.length > 0 || time) && !hasComplexModifiers(message)) {
-    // Strip explicit filters from the query text to avoid polluting vector search
-    const stripped = message
-      .replace(/#[\p{L}\p{N}_-]+/gu, '')
-      .replace(/标签\s*\S+/g, '')
-      .replace(
-        /最近\d+[天周月年]|今天|昨天|本月|上个月|全部|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s*(?:到|至|~|-|—)\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/g,
-        ''
-      )
-      .trim();
+  uniqueStrings(params.args.tags).forEach((tag) => {
+    if (availableTagSet.has(tag)) {
+      tags.push(tag);
+    } else {
+      semanticScope.add(tag);
+      warnings.push(`unknown_tag_downgraded:${tag}`);
+    }
+  });
 
-    const filters = createDefaultFilters();
-    filters.tags.include = tags;
-    filters.tags.match = tags.length > 1 ? 'all' : 'any';
-    filters.time = time;
+  uniqueStrings(params.args.excludeTags).forEach((tag) => {
+    if (availableTagSet.has(tag)) {
+      excludeTags.push(tag);
+    } else {
+      semanticScope.add(tag);
+      warnings.push(`unknown_exclude_tag_downgraded:${tag}`);
+    }
+  });
 
-    return normalizePlan(
-      message,
-      {
-        originalMessage: message,
-        query: stripped || '',
-        filters,
-        comparison: null,
-        confidence: 0.95,
-        needsClarification: false,
-        clarificationQuestion: null,
-        retrievalNeeded: true,
-        pagination: null,
+  const scope: RetrievalScope = {
+    ownerId: params.ownerId,
+    query: typeof params.args.query === 'string' ? params.args.query.trim() : '',
+    tags: Array.from(new Set(tags)),
+    excludeTags: Array.from(new Set(excludeTags)),
+    semanticScope: Array.from(semanticScope).slice(0, 30),
+    sourceTypes: normalizeSourceTypes(params.args.sourceTypes, warnings),
+    timeRange: canonicalizeTimeRange(params.args),
+    lifecycleScope: normalizeLifecycleScope(params.args.lifecycleScope),
+    taskStatusScope: normalizeTaskStatusScope(params.args.taskStatusScope),
+    limit: clampLimit(params.args.limit),
+    cursor:
+      typeof params.args.cursor === 'string' && params.args.cursor.trim()
+        ? params.args.cursor.trim()
+        : null,
+    excludeIds: params.excludeIds || [],
+  };
+
+  return { scope, warnings };
+}
+
+export function toPlannerAgentDto(result: PlannerAgentResult): PlannerAgentDto {
+  return {
+    originalMessage: result.originalMessage,
+    retrievalNeeded: result.retrievalNeeded,
+    scope: result.scope,
+    toolResult: result.toolResult,
+    clarification: result.clarification,
+    debugTrace: result.debugTrace,
+  };
+}
+
+function parseToolArguments(call: ChatToolCall): unknown {
+  try {
+    return call.function.arguments ? JSON.parse(call.function.arguments) : {};
+  } catch {
+    return {};
+  }
+}
+
+function plannerTools(): ChatToolDefinition[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'search_rotes',
+        description:
+          'Probe the current user Rote notes/articles. Use when the answer depends on user memory. Unknown tags will be treated as semantic keywords.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            excludeTags: { type: 'array', items: { type: 'string' } },
+            semanticScope: { type: 'array', items: { type: 'string' } },
+            sourceTypes: { type: 'array', items: { type: 'string', enum: ['rote', 'article'] } },
+            timeExpression: { type: 'string' },
+            from: { type: 'string' },
+            to: { type: 'string' },
+            lifecycleScope: {
+              type: 'string',
+              enum: ['active', 'archived', 'all', 'unspecified'],
+              description: 'Note lifecycle scope only. This maps to archived/unarchived storage.',
+            },
+            taskStatusScope: {
+              type: 'string',
+              enum: ['open', 'closed', 'all', 'unspecified'],
+              description:
+                'Task/open-loop semantic scope only. It is independent from lifecycleScope and does not map to archived.',
+            },
+            limit: { type: 'number' },
+            cursor: { type: 'string' },
+          },
+        },
       },
-      availableTags
-    );
-  }
-
-  // No explicit signals, or complex modifiers present → let LLM handle it
-  return null;
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_tags',
+        description: 'List user tags when exact tag filtering is needed.',
+        parameters: { type: 'object', properties: { limit: { type: 'number' } } },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'finish',
+        description:
+          'Finish planning. Either use the last search_rotes result, or state that retrieval is not needed.',
+        parameters: {
+          type: 'object',
+          properties: {
+            useLastSearch: { type: 'boolean' },
+            retrievalNeeded: { type: 'boolean' },
+            reason: { type: 'string' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'request_clarification',
+        description: 'Ask the user one concise clarification question before retrieval.',
+        parameters: {
+          type: 'object',
+          properties: {
+            question: { type: 'string' },
+            reason: { type: 'string' },
+          },
+          required: ['question'],
+        },
+      },
+    },
+  ];
 }
 
-function applyClarificationAnswer(plan: AiRetrievalPlan, answer: string): AiRetrievalPlan | null {
-  if (!plan.needsClarification) return plan;
-  if (/不限定标签|不用标签|不要标签|按关键词|关键词搜索/i.test(answer)) {
-    const filters = mapFiltersTagsToSemanticScope(plan.filters);
-    const comparison = plan.comparison
-      ? {
-          ...plan.comparison,
-          groups: plan.comparison.groups.map((group) => ({
-            ...group,
-            filters: mapFiltersTagsToSemanticScope(group.filters),
-          })),
-        }
-      : null;
-    const nextPlan = {
-      ...plan,
-      filters,
-      comparison,
-      needsClarification: false,
-      clarificationQuestion: null,
-    };
-    return {
-      ...nextPlan,
-      summary: buildSummary(nextPlan),
-    };
-  }
-  return null;
+function buildPlannerSystemPrompt(today: string): string {
+  return `You are the Rote retrieval planner. Today is ${today} in Asia/Shanghai.
+
+Use tools only. Decide whether Rote memory is needed, what to probe, whether another probe is needed, or whether to ask a clarification.
+
+Tools:
+- search_rotes probes notes/articles and returns canonicalized scope plus lightweight snippets.
+- list_tags is only for exact tag decisions.
+- finish ends planning; it may only use the last search_rotes result or declare retrievalNeeded=false.
+- request_clarification asks a concise user-facing question.
+
+Keep lifecycleScope and taskStatusScope independent. lifecycleScope is note archived/unarchived lifecycle. taskStatusScope is task/open-loop semantics and must not stand in for archived state.
+Do not answer the user here.`;
+}
+
+function createEmptyTrace(): PlannerDebugTrace {
+  return {
+    toolCalls: [],
+    canonicalizedArgs: [],
+    warnings: [],
+    probeCounts: [],
+  };
+}
+
+function noRetrievalResult(
+  message: string,
+  trace: PlannerDebugTrace,
+  reason: string
+): PlannerAgentResult {
+  return {
+    originalMessage: message,
+    retrievalNeeded: false,
+    scope: null,
+    toolResult: null,
+    sources: [],
+    clarification: null,
+    debugTrace: { ...trace, finishReason: reason },
+  };
 }
 
 export async function createRetrievalPlan(params: {
   ownerId: string;
   message: string;
   config: AiConfig;
-  pendingPlan?: AiRetrievalPlan | null;
-  clarificationAnswer?: string;
-  previousPlan?: AiRetrievalPlan | null;
   history?: { role: 'user' | 'assistant'; content: string }[];
+  executeSearch: SearchRotesProbeExecutor;
+  completeWithTools?: typeof createChatCompletionWithToolsStreaming;
+  availableTags?: string[];
+  excludeIds?: string[];
+  getTagCounts?: () => Promise<Array<{ name: string; count: number }>>;
+  maxSteps?: number;
+  maxToolCalls?: number;
   onThinkingDelta?: (text: string) => Promise<void> | void;
   onUsage?: (usage: ChatCompletionUsage) => Promise<void> | void;
-}): Promise<AiRetrievalPlan> {
-  const availableTags = await getUserRoteTags(params.ownerId);
-  const clarificationPlan =
-    params.pendingPlan && params.clarificationAnswer
-      ? applyClarificationAnswer(params.pendingPlan, params.clarificationAnswer)
-      : null;
-  if (clarificationPlan) {
-    return clarificationPlan;
+}): Promise<PlannerAgentResult> {
+  const trace = createEmptyTrace();
+  const availableTags = params.availableTags || (await getUserRoteTags(params.ownerId));
+  const messages: ChatMessage[] = [
+    { role: 'system', content: buildPlannerSystemPrompt(toDateString(getShanghaiToday())) },
+  ];
+  if (params.history?.length) {
+    messages.push(
+      ...params.history.slice(-8).map((message) => ({
+        role: message.role,
+        content: message.content,
+      }))
+    );
   }
+  messages.push({ role: 'user', content: params.message });
 
-  const message = params.pendingPlan?.originalMessage
-    ? `${params.pendingPlan.originalMessage}\n补充说明：${params.message}`
-    : params.message;
+  let lastSearch: SearchRotesProbeResult | null = null;
+  let toolCallCount = 0;
+  const toolDefinitions = plannerTools();
+  const completeWithTools = params.completeWithTools || createChatCompletionWithToolsStreaming;
+  const maxSteps = params.maxSteps ?? MAX_STEPS;
+  const maxToolCalls = params.maxToolCalls ?? MAX_TOOL_CALLS;
 
-  // Fast path: explicit #tag / 标签 xxx / explicit time with no complex modifiers
-  const fastPlan = createFastRetrievalPlan(message, availableTags);
-  if (fastPlan) {
-    return fastPlan;
-  }
-
-  // LLM planner path: intent + patch + confidence + reasonCode
-  const today = toDateString(getShanghaiToday());
-  const systemPrompt = buildPlannerPrompt(today, availableTags);
-
-  try {
-    const plannerMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-      { role: 'system', content: systemPrompt },
-    ];
-
-    if (params.history && params.history.length > 0) {
-      plannerMessages.push(
-        ...params.history.map((m) => ({
-          role: (m.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
-          content: m.content,
-        }))
-      );
+  for (let step = 0; step < maxSteps; step += 1) {
+    let response: Awaited<ReturnType<typeof createChatCompletionWithToolsStreaming>>;
+    try {
+      response = await completeWithTools(params.config.chat, messages, toolDefinitions, {
+        temperature: 0,
+        enableThinking: true,
+        onReasoning: params.onThinkingDelta,
+      });
+    } catch (error: any) {
+      trace.providerError = error?.message || String(error);
+      trace.fallbackReason = 'provider_error';
+      return noRetrievalResult(params.message, trace, 'provider_error');
     }
 
-    plannerMessages.push({ role: 'user', content: message });
+    if (response.usage) await params.onUsage?.(response.usage);
 
-    let raw = '';
-    for await (const part of createChatCompletionStreamParts(params.config.chat, plannerMessages, {
-      temperature: 0,
-      enableThinking: true,
-    })) {
-      if (part.type === 'reasoning') {
-        await params.onThinkingDelta?.(part.text);
-      } else if (part.type === 'content') {
-        raw += part.text;
-      } else if (part.type === 'usage') {
-        await params.onUsage?.(part.usage);
+    const calls = response.message.tool_calls || [];
+    if (!calls.length) {
+      trace.fallbackReason = 'assistant_returned_no_tool_call';
+      return noRetrievalResult(params.message, trace, 'assistant_returned_no_tool_call');
+    }
+
+    messages.push({
+      role: 'assistant',
+      content: response.message.content || null,
+      tool_calls: calls,
+    });
+
+    for (const call of calls) {
+      if (toolCallCount >= maxToolCalls) {
+        trace.fallbackReason = 'tool_call_budget_exceeded';
+        return lastSearch
+          ? {
+              originalMessage: params.message,
+              retrievalNeeded: true,
+              scope: lastSearch.toolResult.canonicalizedArgs,
+              toolResult: lastSearch.toolResult,
+              sources: lastSearch.sources,
+              clarification: null,
+              debugTrace: trace,
+            }
+          : noRetrievalResult(params.message, trace, 'tool_call_budget_exceeded');
+      }
+      toolCallCount += 1;
+      const args = parseToolArguments(call);
+      trace.toolCalls.push({ step, name: call.function.name, args });
+
+      if (call.function.name === 'search_rotes') {
+        const { scope, warnings } = canonicalizeSearchRotesArgs({
+          ownerId: params.ownerId,
+          args: asRecord(args) as SearchRotesArgs,
+          availableTags,
+          excludeIds: params.excludeIds,
+        });
+        let probe: SearchRotesProbeResult;
+        try {
+          probe = await params.executeSearch(scope);
+        } catch (error: any) {
+          trace.toolError = error?.message || String(error);
+          trace.fallbackReason = 'tool_error';
+          throw error;
+        }
+        lastSearch = {
+          toolResult: {
+            ...probe.toolResult,
+            warnings: Array.from(new Set([...warnings, ...probe.toolResult.warnings])),
+          },
+          sources: probe.sources,
+        };
+        trace.canonicalizedArgs.push(scope);
+        trace.warnings.push(...warnings, ...probe.toolResult.warnings);
+        trace.probeCounts.push(probe.toolResult.resultCount);
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify(lastSearch.toolResult),
+        });
+      } else if (call.function.name === 'list_tags') {
+        const raw = asRecord(args);
+        const limit = clampLimit(raw.limit);
+        const tags = (
+          await (params.getTagCounts || (() => getUserRoteTagCounts(params.ownerId)))()
+        ).slice(0, limit);
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: 'ok', tags }),
+        });
+      } else if (call.function.name === 'finish') {
+        const raw = asRecord(args);
+        const reason = typeof raw.reason === 'string' ? raw.reason : 'finish';
+        trace.finishReason = reason;
+        if (raw.useLastSearch === true && lastSearch) {
+          return {
+            originalMessage: params.message,
+            retrievalNeeded: true,
+            scope: lastSearch.toolResult.canonicalizedArgs,
+            toolResult: lastSearch.toolResult,
+            sources: lastSearch.sources,
+            clarification: null,
+            debugTrace: trace,
+          };
+        }
+        if (raw.retrievalNeeded === false) {
+          return noRetrievalResult(params.message, trace, reason);
+        }
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({
+            status: 'error',
+            message: 'finish must useLastSearch=true after search_rotes or retrievalNeeded=false',
+          }),
+        });
+      } else if (call.function.name === 'request_clarification') {
+        const raw = asRecord(args);
+        const question =
+          typeof raw.question === 'string' && raw.question.trim()
+            ? raw.question.trim()
+            : 'Can you clarify what you want to search?';
+        return {
+          originalMessage: params.message,
+          retrievalNeeded: false,
+          scope: null,
+          toolResult: null,
+          sources: [],
+          clarification: {
+            question,
+            reason: typeof raw.reason === 'string' ? raw.reason : undefined,
+          },
+          debugTrace: trace,
+        };
+      } else {
+        trace.warnings.push(`unknown_tool:${call.function.name}`);
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({ status: 'error', message: 'Unknown planner tool' }),
+        });
       }
     }
-    const parsed = parsePlannerJson(raw);
-    const plannerOutput = sanitizePlannerOutput(parsed, message);
-    return reducePlan(plannerOutput, params.previousPlan || null, availableTags);
-  } catch {
-    return normalizePlan(message, fallbackPlan(message), availableTags);
   }
+
+  trace.fallbackReason = 'max_steps_exceeded';
+  return lastSearch
+    ? {
+        originalMessage: params.message,
+        retrievalNeeded: true,
+        scope: lastSearch.toolResult.canonicalizedArgs,
+        toolResult: lastSearch.toolResult,
+        sources: lastSearch.sources,
+        clarification: null,
+        debugTrace: trace,
+      }
+    : noRetrievalResult(params.message, trace, 'max_steps_exceeded');
 }
