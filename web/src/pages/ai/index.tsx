@@ -183,7 +183,6 @@ function AiMemoryPage() {
     // eslint-disable-next-line react-you-might-not-need-an-effect/no-event-handler
     if (isAutoScrollPaused) return;
     scrollToMessageEnd('auto');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, isSending, scrollToMessageEnd]);
 
   useEffect(() => {
@@ -640,8 +639,14 @@ function AiMemoryPage() {
       const aborted = controller.signal.aborted || error?.name === 'AbortError';
       if (aborted) return;
 
-      const fallbackMessage =
+      let fallbackMessage =
         error?.response?.data?.message || error?.message || t('messages.askFailed');
+
+      if (fallbackMessage === 'error_no_answer_with_sources') {
+        fallbackMessage = t('messages.fallbackNoAnswerWithSources');
+      } else if (fallbackMessage === 'error_no_answer_no_sources') {
+        fallbackMessage = t('messages.fallbackNoAnswerNoSources');
+      }
       const streamContent =
         activeStreamRef.current?.targetContent || activeStreamRef.current?.content || '';
       flushStreamContent(assistantId);

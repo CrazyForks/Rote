@@ -182,24 +182,6 @@ async function streamFinalAnswer(ctx: RoteAgentContext, messages: ChatMessage[])
   return emittedText;
 }
 
-function isLikelyChinese(text: string): boolean {
-  return /[\u3400-\u9fff]/.test(text);
-}
-
-function fallbackAnswer(sources: SemanticSearchResult[], question: string): string {
-  if (isLikelyChinese(question)) {
-    if (sources.length) {
-      return '我找到了相关的 Rote 记忆，但模型没有返回可用回答。可以换个问法，或把范围收窄后再试一次。';
-    }
-    return '没有找到匹配的 Rote 记忆，所以我现在还不能基于你的笔记回答这个问题。';
-  }
-
-  if (sources.length) {
-    return 'I found related Rote memory, but the model did not return a usable answer. Please try again or narrow the scope.';
-  }
-  return 'No matching Rote memory was found for this question, so I cannot answer from your notes yet.';
-}
-
 export async function runRoteAgentStream(params: {
   userId: string;
   request: RoteAgentRequest;
@@ -369,7 +351,9 @@ export async function runRoteAgentStream(params: {
   }
 
   if (!hasFinalAnswer) {
-    await params.emit({ type: 'delta', text: fallbackAnswer(ctx.getSources(), request.message) });
+    const errorCode =
+      ctx.getSources().length > 0 ? 'error_no_answer_with_sources' : 'error_no_answer_no_sources';
+    await params.emit({ type: 'error', message: errorCode });
   }
 
   await params.emit({

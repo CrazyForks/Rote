@@ -497,8 +497,10 @@
         "thinking": "Thinking...",
         "searching": "Searching...",
         "reading": "Reading and generating...",
-        "interrupted": "Previous answer was interrupted",
+        "interrupted": "Previous response was interrupted",
         "askFailed": "Request failed",
+        "fallbackNoAnswerWithSources": "I found related memory, but the model did not return a usable answer. Please try again or narrow the scope.",
+        "fallbackNoAnswerNoSources": "No matching memory was found, so I cannot answer from your notes yet.",
         "saveSuccess": "Saved as article",
         "saveFailed": "Save failed"
       }

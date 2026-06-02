@@ -499,6 +499,8 @@
         "reading": "ソースを読んで生成中...",
         "interrupted": "前回の回答は中断されました",
         "askFailed": "リクエスト失敗",
+        "fallbackNoAnswerWithSources": "関連する記憶が見つかりましたが、モデルから有効な回答が返されませんでした。別の質問を試すか、範囲を絞ってみてください。",
+        "fallbackNoAnswerNoSources": "関連する記憶が見つからなかったため、現在のノートに基づいて回答することができません。",
         "saveSuccess": "記事として保存しました",
         "saveFailed": "保存失敗"
       }

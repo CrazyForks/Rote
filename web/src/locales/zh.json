@@ -489,6 +489,8 @@
         "reading": "阅读并生成中...",
         "interrupted": "上次回答已中断",
         "askFailed": "请求失败",
+        "fallbackNoAnswerWithSources": "我找到了相关的记忆，但模型没有返回可用回答。可以换个问法，或把范围收窄后再试一次。",
+        "fallbackNoAnswerNoSources": "没有找到相关的记忆，所以我现在还不能基于你的笔记回答这个问题。",
         "saveSuccess": "已保存为文章",
         "saveFailed": "保存失败"
       }
