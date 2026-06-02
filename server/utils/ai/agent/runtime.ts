@@ -182,23 +182,6 @@ async function streamFinalAnswer(ctx: RoteAgentContext, messages: ChatMessage[])
   return emittedText;
 }
 
-async function emitAssistantContent(
-  ctx: RoteAgentContext,
-  content?: string | null
-): Promise<boolean> {
-  const text = content?.trim();
-  if (!text) return false;
-
-  // Artificially stream the direct answer to preserve the streaming UX on the frontend.
-  // Sends 2 characters every 10ms (approx 200 chars/sec).
-  const chunkSize = 2;
-  for (let i = 0; i < text.length; i += chunkSize) {
-    await ctx.emit({ type: 'delta', text: text.slice(i, i + chunkSize) });
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return true;
-}
-
 function isLikelyChinese(text: string): boolean {
   return /[\u3400-\u9fff]/.test(text);
 }
@@ -247,7 +230,7 @@ export async function runRoteAgentStream(params: {
 
   const messages = buildInitialMessages(request);
   let toolCallCount = 0;
-  let emittedText = false;
+  let hasFinalAnswer = false;
 
   await params.emit({ type: 'run_started', runId });
   await params.emit({ type: 'progress', phase: 'understanding' });
@@ -270,6 +253,9 @@ export async function runRoteAgentStream(params: {
                 phase: step === 0 ? 'route_decision' : 'evidence_decision',
                 text,
               }),
+            onContent: async (text) => {
+              await params.emit({ type: 'delta', text });
+            },
           }
         )
       );
@@ -287,7 +273,7 @@ export async function runRoteAgentStream(params: {
 
     const toolCalls = assistantMessage.tool_calls || [];
     if (!toolCalls.length) {
-      emittedText = await emitAssistantContent(ctx, assistantMessage.content);
+      hasFinalAnswer = !!assistantMessage.content?.trim();
       break;
     }
 
@@ -377,12 +363,12 @@ export async function runRoteAgentStream(params: {
     if (toolCallCount >= policy.maxToolCalls) break;
   }
 
-  if (!emittedText) {
+  if (!hasFinalAnswer) {
     messages.push({ role: 'user', content: buildFinalAnswerInstruction() });
-    emittedText = await streamFinalAnswer(ctx, messages);
+    hasFinalAnswer = await streamFinalAnswer(ctx, messages);
   }
 
-  if (!emittedText) {
+  if (!hasFinalAnswer) {
     await params.emit({ type: 'delta', text: fallbackAnswer(ctx.getSources(), request.message) });
   }
 

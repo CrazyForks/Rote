@@ -277,6 +277,7 @@ export async function createChatCompletionWithToolsStreaming(
   tools: ChatToolDefinition[],
   options: ChatCompletionOptions & {
     onReasoning?: (text: string) => Promise<void> | void;
+    onContent?: (text: string) => Promise<void> | void;
   } = {}
 ): Promise<{
   message: ChatMessage;
@@ -354,6 +355,7 @@ export async function createChatCompletionWithToolsStreaming(
 
         if (typeof delta.content === 'string' && delta.content.length > 0) {
           content += delta.content;
+          await options.onContent?.(delta.content);
         }
 
         if (Array.isArray(delta.tool_calls)) {
