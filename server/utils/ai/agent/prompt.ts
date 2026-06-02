@@ -1,6 +1,14 @@
 import { getNativeRoteSkillSummary } from './skills';
 import type { RoteAgentMode } from './types';
 
+export const ROTE_RESPONSE_STYLE_PROMPT = `## Response style
+
+- Be concise by default: answer the user's exact question first.
+- Prefer short paragraphs or compact bullets; avoid long setup, repeated caveats, and process narration.
+- Include nuance only when it changes the conclusion.
+- When evidence is limited, say it once and keep the rest useful.
+- In casual Chinese conversations, keep the tone natural and direct.`;
+
 export function buildRoteAgentSystemPrompt(mode: RoteAgentMode): string {
   const modeLine =
     mode === 'review'
@@ -38,6 +46,8 @@ ${getNativeRoteSkillSummary()}
 - If the conversation is in Chinese and the latest user message is a brief acknowledgement, confirmation, or ambiguous follow-up, keep answering in Chinese.
 - Switch languages only when the user clearly asks for another language or continues substantive discussion in that language.
 
+${ROTE_RESPONSE_STYLE_PROMPT}
+
 ## Sources
 
 When using Rote content, cite source numbers like [1].
@@ -59,7 +69,7 @@ If the user asks to organize, edit, tag, merge, or create notes, provide a propo
 export function buildFinalAnswerInstruction(): string {
   return `Use the gathered Rote tool results to answer the user's latest request.
 Answer in the active conversation language. If the conversation is in Chinese and the latest user message is only a brief acknowledgement or ambiguous follow-up, keep answering in Chinese.
-Keep the answer concise and grounded in sources.
+Keep the answer concise, direct, and grounded in sources.
 Cite source numbers like [1] whenever you rely on Rote content.
 If there is not enough evidence, say so instead of inventing.`;
 }
