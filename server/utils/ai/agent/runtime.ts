@@ -188,7 +188,14 @@ async function emitAssistantContent(
 ): Promise<boolean> {
   const text = content?.trim();
   if (!text) return false;
-  await ctx.emit({ type: 'delta', text });
+
+  // Artificially stream the direct answer to preserve the streaming UX on the frontend.
+  // Sends 2 characters every 10ms (approx 200 chars/sec).
+  const chunkSize = 2;
+  for (let i = 0; i < text.length; i += chunkSize) {
+    await ctx.emit({ type: 'delta', text: text.slice(i, i + chunkSize) });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   return true;
 }
 
