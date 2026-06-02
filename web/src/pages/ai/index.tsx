@@ -6,25 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
-import type { AiMemoryMessage } from '@/state/aiChat';
 import {
   aiChatMessagesAtom,
+  aiRunStateAtom,
   getCurrentAiAssistantSources,
-  getAiSourceKey,
-  getLatestAiAssistantPlan,
-  getSeenSourceIdsForActiveAiPlan,
-  mergeAiTokenUsage,
-  mergeAiTokenUsageByPhase,
   sanitizeAiChatMessages,
-  settleAiMessageTimeline,
 } from '@/state/aiChat';
+import { getAiStatus, type AiAgentPhase, type AiAgentToolProgressStatus } from '@/utils/aiApi';
 import {
-  aiAgentStream,
-  getAiStatus,
-  type AiAgentClientState,
-  type AiAgentPhase,
-  type AiAgentToolProgressStatus,
-} from '@/utils/aiApi';
+  clearAiRun,
+  isAiRunActive,
+  startAiRun,
+  syncAiRunStateFromMessages,
+} from '@/state/aiRunManager';
 import { useAPIGet } from '@/utils/fetcher';
 import { useAtom } from 'jotai';
 import {
@@ -53,51 +47,15 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { toast } from 'sonner';
-
-type ActiveStream = {
-  id: string;
-  content: string;
-  targetContent: string;
-  frame: number | null;
-  done: boolean;
-  drainResolver?: () => void;
-};
-
-type ActiveRun = {
-  assistantId: string;
-  controller: AbortController;
-};
-
-function createMessageId() {
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function getStreamRevealSize(backlog: number) {
-  if (backlog > 1200) return 240;
-  if (backlog > 500) return 160;
-  return 80;
-}
-
 function AiMemoryPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const [messages, setMessages] = useAtom(aiChatMessagesAtom);
+  const [runState] = useAtom(aiRunStateAtom);
   const [input, setInput] = useState('');
-  const [isSending, setIsSending] = useState(false);
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
-  const activeStreamRef = useRef<ActiveStream | null>(null);
-  const activeRunRef = useRef<ActiveRun | null>(null);
-  const isMountedRef = useRef(true);
-  const isSendingRef = useRef(false);
-  const seenSourceIdsRef = useRef<Set<string>>(new Set());
-  const agentStateRef = useRef<AiAgentClientState>({
-    conversationId: createMessageId(),
-    seenSourceIds: [],
-    stateVersion: 1,
-  });
-  const currentIsMoreRef = useRef(false);
+  const isSending = runState.isSending;
 
   const {
     data: status,
@@ -186,500 +144,45 @@ function AiMemoryPage() {
   }, [messages, isSending, scrollToMessageEnd]);
 
   useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-      activeRunRef.current?.controller.abort();
-      if (activeStreamRef.current?.frame !== null && activeStreamRef.current?.frame !== undefined) {
-        window.cancelAnimationFrame(activeStreamRef.current.frame);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    isSendingRef.current = isSending;
-  }, [isSending]);
-
-  useEffect(() => {
+    if (isAiRunActive()) return;
     setMessages((prev) => sanitizeAiChatMessages(prev, t('messages.interrupted')));
   }, [setMessages, t]);
 
   useEffect(() => {
-    // Keep non-react refs aligned with persisted chat history after reload.
-    // eslint-disable-next-line react-you-might-not-need-an-effect/no-event-handler
+    // Keep the global run manager aligned with persisted chat history after reload.
     if (isSending) return;
-
-    const seenSourceIds = getSeenSourceIdsForActiveAiPlan(messages);
-    seenSourceIdsRef.current = new Set(seenSourceIds);
-    agentStateRef.current = {
-      ...agentStateRef.current,
-      previousPlan: getLatestAiAssistantPlan(messages),
-      seenSourceIds,
-      stateVersion: 1,
-    };
+    syncAiRunStateFromMessages(messages);
   }, [messages, isSending]);
 
   const clearChat = useCallback(() => {
-    activeRunRef.current?.controller.abort();
-    activeRunRef.current = null;
-    isSendingRef.current = false;
-    activeStreamRef.current = null;
-    currentIsMoreRef.current = false;
     setIsAutoScrollPaused(false);
-    setIsSending(false);
-    setMessages([]);
-    seenSourceIdsRef.current.clear();
-    agentStateRef.current = {
-      conversationId: createMessageId(),
-      seenSourceIds: [],
-      stateVersion: 1,
-    };
-  }, [setMessages]);
-
-  function isActiveRun(assistantId: string) {
-    return activeRunRef.current?.assistantId === assistantId;
-  }
-
-  function setMessagesForActiveRun(
-    assistantId: string,
-    updater: (messages: AiMemoryMessage[]) => AiMemoryMessage[]
-  ) {
-    if (!isMountedRef.current || !isActiveRun(assistantId)) return;
-    setMessages(updater);
-  }
-
-  function flushStreamContent(assistantId: string) {
-    if (!isActiveRun(assistantId)) return;
-    const stream = activeStreamRef.current;
-    if (!stream || stream.id !== assistantId) return;
-
-    stream.frame = null;
-    const backlog = stream.targetContent.length - stream.content.length;
-    if (backlog > 0) {
-      stream.content = stream.targetContent.slice(
-        0,
-        stream.content.length + getStreamRevealSize(backlog)
-      );
-    }
-    setMessagesForActiveRun(assistantId, (prev) =>
-      prev.map((message) =>
-        message.id === assistantId ? { ...message, content: stream.content } : message
-      )
-    );
-
-    if (stream.content.length < stream.targetContent.length) {
-      stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
-      return;
-    }
-
-    if (stream.done) {
-      stream.drainResolver?.();
-      stream.drainResolver = undefined;
-    }
-  }
-
-  function queueStreamDelta(assistantId: string, text: string) {
-    if (!isActiveRun(assistantId)) return;
-    const stream = activeStreamRef.current;
-    if (!stream || stream.id !== assistantId) return;
-
-    stream.targetContent += text;
-    if (stream.frame === null) {
-      stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
-    }
-  }
-
-  function drainStreamContent(assistantId: string): Promise<void> {
-    if (!isActiveRun(assistantId)) return Promise.resolve();
-    const stream = activeStreamRef.current;
-    if (!stream || stream.id !== assistantId) return Promise.resolve();
-
-    stream.done = true;
-    if (stream.content.length >= stream.targetContent.length) return Promise.resolve();
-
-    if (stream.frame === null) {
-      stream.frame = window.requestAnimationFrame(() => flushStreamContent(assistantId));
-    }
-    return new Promise((resolve) => {
-      let resolved = false;
-      const finish = () => {
-        if (resolved) return;
-        resolved = true;
-        if (stream.drainResolver === finish) {
-          stream.drainResolver = undefined;
-        }
-        resolve();
-      };
-      stream.drainResolver = finish;
-      window.setTimeout(finish, 3000);
-    });
-  }
-
-  function updateTimeline(
-    assistantId: string,
-    item: {
-      id: string;
-      type: 'progress' | 'tool';
-      phase?: AiAgentPhase;
-      toolName?: string;
-      toolStatus?: AiAgentToolProgressStatus;
-      message: string;
-      status?: 'running' | 'done' | 'error';
-    }
-  ) {
-    if (!isActiveRun(assistantId)) return;
-    const updatedAt = Date.now();
-    setMessagesForActiveRun(assistantId, (prev) =>
-      prev.map((message) => {
-        if (message.id !== assistantId) return message;
-        const current = message.timeline || [];
-        const existingIndex = current.findIndex((entry) => entry.id === item.id);
-        const nextItem = {
-          id: item.id,
-          type: item.type,
-          phase: item.phase,
-          toolName: item.toolName,
-          toolStatus: item.toolStatus,
-          message: item.message,
-          status: item.status || 'running',
-          updatedAt,
-        };
-        const next =
-          existingIndex >= 0
-            ? current.map((entry, index) =>
-                index === existingIndex ? { ...entry, ...nextItem } : entry
-              )
-            : [...current, nextItem];
-        return { ...message, timeline: next.slice(-10) };
-      })
-    );
-  }
-
-  function mergeAgentState(
-    state: Partial<AiAgentClientState>,
-    options: { replaceSeenSourceIds?: boolean } = {}
-  ) {
-    const previous = agentStateRef.current;
-    const seenSourceIds = options.replaceSeenSourceIds
-      ? new Set(state.seenSourceIds || [])
-      : new Set([...(previous.seenSourceIds || []), ...(state.seenSourceIds || [])]);
-    agentStateRef.current = {
-      ...previous,
-      ...state,
-      seenSourceIds: Array.from(seenSourceIds).slice(0, 500),
-    };
-  }
+    clearAiRun();
+  }, []);
 
   async function sendMessage(value: string, options: { ignorePendingPlan?: boolean } = {}) {
     const question = value.trim();
-    if (!question || isSendingRef.current || unavailable) return;
-
-    const validHistory = messages
-      .filter((m) => !m.error && !m.isStreaming && m.content)
-      .map((m) => ({ role: m.role, content: m.content }))
-      .slice(-6); // Keep last 6 messages (3 turns)
-
-    const activePendingPlan = options.ignorePendingPlan ? null : pendingPlan;
+    if (!question) return;
     setInput('');
     setIsAutoScrollPaused(false);
-    isSendingRef.current = true;
-    setIsSending(true);
-    currentIsMoreRef.current = false;
-    const assistantId = createMessageId();
-    const controller = new AbortController();
-    let receivedClarification = false;
-    const start = performance.now();
-    let firstTokenTime: number | undefined;
-
-    activeRunRef.current = { assistantId, controller };
-    activeStreamRef.current = {
-      id: assistantId,
-      content: '',
-      targetContent: '',
-      frame: null,
-      done: false,
-    };
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: createMessageId(),
-        role: 'user',
-        content: question,
+    const started = await startAiRun({
+      question,
+      messages,
+      pendingPlan: options.ignorePendingPlan ? null : pendingPlan,
+      ignorePendingPlan: options.ignorePendingPlan,
+      unavailable,
+      labels: {
+        phase: getAgentPhaseLabel,
+        toolStarted: getToolStartedLabel,
+        toolStatus: getToolStatusLabel,
+        toolFinished: getToolFinishedLabel,
+        sourcesFound: (count) => t('timeline.sourcesFound', { count }),
+        askFailed: t('messages.askFailed'),
+        fallbackNoAnswerWithSources: t('messages.fallbackNoAnswerWithSources'),
+        fallbackNoAnswerNoSources: t('messages.fallbackNoAnswerNoSources'),
       },
-      {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        sources: [],
-        isStreaming: true,
-      },
-    ]);
-
-    try {
-      // Build previousPlan from the last assistant message
-      const previousPlan = options.ignorePendingPlan ? null : getLatestAiAssistantPlan(messages);
-
-      // Always pass accumulated seen source IDs (server decides whether to use them)
-      const excludeIds =
-        seenSourceIdsRef.current.size > 0 ? Array.from(seenSourceIdsRef.current) : undefined;
-
-      await aiAgentStream(
-        {
-          message: question,
-          pendingPlan: activePendingPlan,
-          clarificationAnswer: activePendingPlan ? question : undefined,
-          previousPlan,
-          excludeIds,
-          history: validHistory.length > 0 ? validHistory : undefined,
-          state: {
-            ...agentStateRef.current,
-            previousPlan,
-            seenSourceIds: excludeIds,
-            stateVersion: 1,
-          },
-        },
-        {
-          onRunStarted: (runId) => {
-            if (!isActiveRun(assistantId)) return;
-            mergeAgentState({ conversationId: runId });
-          },
-          onProgress: (phase) => {
-            updateTimeline(assistantId, {
-              id: `progress-${phase}`,
-              type: 'progress',
-              phase,
-              message: getAgentPhaseLabel(phase),
-            });
-          },
-          onToolStarted: (toolName) => {
-            updateTimeline(assistantId, {
-              id: `tool-${toolName}`,
-              type: 'tool',
-              toolName,
-              message: getToolStartedLabel(toolName),
-            });
-          },
-          onToolProgress: (toolName, status) => {
-            updateTimeline(assistantId, {
-              id: `tool-${toolName}`,
-              type: 'tool',
-              toolName,
-              toolStatus: status,
-              message: getToolStatusLabel(status),
-            });
-          },
-          onToolFinished: (toolName) => {
-            if (toolName === 'rote_search_notes') return;
-            updateTimeline(assistantId, {
-              id: `tool-${toolName}`,
-              type: 'tool',
-              toolName,
-              message: getToolFinishedLabel(toolName),
-              status: 'done',
-            });
-          },
-          onPlan: (plan) => {
-            if (!isActiveRun(assistantId)) return;
-            currentIsMoreRef.current = false;
-            seenSourceIdsRef.current.clear();
-            mergeAgentState(
-              { previousPlan: plan, seenSourceIds: [] },
-              { replaceSeenSourceIds: true }
-            );
-            const planTime = performance.now() - start;
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? { ...message, plan, metrics: { ...message.metrics, planTime } }
-                  : message
-              )
-            );
-          },
-          onClarification: (clarification) => {
-            if (!isActiveRun(assistantId)) return;
-            receivedClarification = true;
-            const planTime = performance.now() - start;
-            const translatedContent = clarification.question;
-
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? settleAiMessageTimeline(
-                      {
-                        ...message,
-                        content: translatedContent,
-                        plan: clarification.pendingPlan ?? undefined,
-                        pendingPlan: clarification.pendingPlan ?? undefined,
-                        clarification: true,
-                        isStreaming: false,
-                        metrics: {
-                          ...message.metrics,
-                          planTime,
-                          totalTime: performance.now() - start,
-                        },
-                      },
-                      'done'
-                    )
-                  : message
-              )
-            );
-          },
-          onSources: (sources) => {
-            if (!isActiveRun(assistantId)) return;
-            sources.forEach((source) => seenSourceIdsRef.current.add(getAiSourceKey(source)));
-            mergeAgentState(
-              {
-                seenSourceIds: Array.from(seenSourceIdsRef.current),
-              },
-              { replaceSeenSourceIds: !currentIsMoreRef.current }
-            );
-            const sourcesTime = performance.now() - start;
-            updateTimeline(assistantId, {
-              id: 'tool-rote_search_notes',
-              type: 'tool',
-              toolName: 'rote_search_notes',
-              message: t('timeline.sourcesFound', { count: sources.length }),
-              status: 'done',
-            });
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? { ...message, sources, metrics: { ...message.metrics, sourcesTime } }
-                  : message
-              )
-            );
-          },
-          onThinking: (phase, text) => {
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      thinking: {
-                        ...message.thinking,
-                        [phase]: `${message.thinking?.[phase] || ''}${text}`,
-                      },
-                    }
-                  : message
-              )
-            );
-          },
-          onDelta: (text) => {
-            if (!isActiveRun(assistantId)) return;
-            if (!firstTokenTime) {
-              firstTokenTime = performance.now() - start;
-              setMessagesForActiveRun(assistantId, (prev) =>
-                prev.map((message) =>
-                  message.id === assistantId
-                    ? { ...message, metrics: { ...message.metrics, firstTokenTime } }
-                    : message
-                )
-              );
-            }
-            queueStreamDelta(assistantId, text);
-          },
-          onUsage: (usage, phase) => {
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      metrics: {
-                        ...message.metrics,
-                        usage: mergeAiTokenUsage(message.metrics?.usage, usage),
-                        usageByPhase: mergeAiTokenUsageByPhase(
-                          message.metrics?.usageByPhase,
-                          phase,
-                          usage
-                        ),
-                      },
-                    }
-                  : message
-              )
-            );
-          },
-          onStatePatch: (state) => {
-            if (!isActiveRun(assistantId)) return;
-            const nextState = currentIsMoreRef.current
-              ? state
-              : {
-                  ...state,
-                  seenSourceIds: Array.from(seenSourceIdsRef.current),
-                };
-            mergeAgentState(nextState, { replaceSeenSourceIds: !currentIsMoreRef.current });
-            if (currentIsMoreRef.current && state.seenSourceIds?.length) {
-              state.seenSourceIds.forEach((id) => seenSourceIdsRef.current.add(id));
-            }
-          },
-        },
-        controller.signal
-      );
-      if (!receivedClarification) {
-        await drainStreamContent(assistantId);
-      }
-      setMessagesForActiveRun(assistantId, (prev) => {
-        const totalTime = performance.now() - start;
-        return prev.map((message) =>
-          message.id === assistantId
-            ? settleAiMessageTimeline(
-                {
-                  ...message,
-                  isStreaming: false,
-                  pendingPlan: receivedClarification ? message.pendingPlan : undefined,
-                  metrics: { ...message.metrics, totalTime },
-                },
-                'done'
-              )
-            : message
-        );
-      });
-    } catch (error: any) {
-      const aborted = controller.signal.aborted || error?.name === 'AbortError';
-      if (aborted) return;
-
-      let fallbackMessage =
-        error?.response?.data?.message || error?.message || t('messages.askFailed');
-
-      if (fallbackMessage === 'error_no_answer_with_sources') {
-        fallbackMessage = t('messages.fallbackNoAnswerWithSources');
-      } else if (fallbackMessage === 'error_no_answer_no_sources') {
-        fallbackMessage = t('messages.fallbackNoAnswerNoSources');
-      }
-      const streamContent =
-        activeStreamRef.current?.targetContent || activeStreamRef.current?.content || '';
-      flushStreamContent(assistantId);
-      setMessagesForActiveRun(assistantId, (prev) =>
-        prev.map((message) =>
-          message.id === assistantId
-            ? settleAiMessageTimeline(
-                {
-                  ...message,
-                  content: streamContent || fallbackMessage,
-                  error: streamContent ? message.error : true,
-                  isStreaming: false,
-                },
-                'error'
-              )
-            : message
-        )
-      );
-      if (streamContent) {
-        toast.error(fallbackMessage);
-      }
-    } finally {
-      if (activeStreamRef.current?.id === assistantId && activeStreamRef.current.frame !== null) {
-        window.cancelAnimationFrame(activeStreamRef.current.frame);
-      }
-      if (activeStreamRef.current?.id === assistantId) {
-        activeStreamRef.current = null;
-      }
-      if (activeRunRef.current?.assistantId === assistantId) {
-        activeRunRef.current = null;
-      }
-      if (isMountedRef.current) {
-        isSendingRef.current = false;
-        setIsSending(false);
-      }
+    });
+    if (!started) {
+      setInput(question);
     }
   }
 

@@ -1,3 +1,4 @@
+import { atom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import type {
   AiAgentPhase,
@@ -153,3 +154,10 @@ export function getSeenSourceIdsForActiveAiPlan(messages: AiMemoryMessage[]): st
 }
 
 export const aiChatMessagesAtom = atomWithStorage<AiMemoryMessage[]>('aiChatMessages', []);
+
+export type AiRunState = {
+  isSending: boolean;
+  assistantId?: string;
+};
+
+export const aiRunStateAtom = atom<AiRunState>({ isSending: false });
