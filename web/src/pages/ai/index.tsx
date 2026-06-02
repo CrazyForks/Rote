@@ -183,7 +183,8 @@ function AiMemoryPage() {
     // eslint-disable-next-line react-you-might-not-need-an-effect/no-event-handler
     if (isAutoScrollPaused) return;
     scrollToMessageEnd('auto');
-  }, [messages, isSending, isAutoScrollPaused, scrollToMessageEnd]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, isSending, scrollToMessageEnd]);
 
   useEffect(() => {
     isMountedRef.current = true;
