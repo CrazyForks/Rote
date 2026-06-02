@@ -147,3 +147,19 @@ html {
     @apply bg-background text-foreground;
   }
 }
+
+@media print {
+  body > *:not(.print-container) {
+    display: none !important;
+  }
+  .print-container {
+    position: relative !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+  @page {
+    margin: 0.5cm;
+  }
+}

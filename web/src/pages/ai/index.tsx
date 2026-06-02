@@ -1,5 +1,5 @@
 import { AiMessageItem } from '@/components/ai/AiMessageItem';
-import { AiSourceList, getAiSourcePath } from '@/components/ai/AiSourceList';
+import { AiSourceList } from '@/components/ai/AiSourceList';
 import NavBar from '@/components/layout/navBar';
 import { SoftBottom } from '@/components/others/SoftBottom';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,6 @@ import {
   type AiAgentPhase,
   type AiAgentToolProgressStatus,
 } from '@/utils/aiApi';
-import { post } from '@/utils/api';
 import { useAPIGet } from '@/utils/fetcher';
 import { useAtom } from 'jotai';
 import {
@@ -80,23 +79,11 @@ function getStreamRevealSize(backlog: number) {
   return 80;
 }
 
-function buildSavedNoteContent(message: AiMemoryMessage, sourceTitle: string) {
-  const origin = window.location.origin;
-  const sourceLines = (message.sources || [])
-    .map((source, index) => `[${index + 1}] ${origin}${getAiSourcePath(source)}`)
-    .join('\n');
-
-  return sourceLines
-    ? `${message.content}\n\n---\n${sourceTitle}\n${sourceLines}`
-    : message.content;
-}
-
 function AiMemoryPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const [messages, setMessages] = useAtom(aiChatMessagesAtom);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [savingMessageId, setSavingMessageId] = useState<string | null>(null);
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
@@ -707,31 +694,6 @@ function AiMemoryPage() {
     }
   }
 
-  async function saveAsNote(message: AiMemoryMessage) {
-    if (savingMessageId) return;
-
-    setSavingMessageId(message.id);
-    try {
-      await post('/notes', {
-        title: t('savedNoteTitle'),
-        content: buildSavedNoteContent(message, t('savedSourceTitle')),
-        tags: ['ai-memory'],
-        state: 'private',
-        archived: false,
-        pin: false,
-        editor: 'markdown',
-      });
-      setMessages((prev) =>
-        prev.map((item) => (item.id === message.id ? { ...item, saved: true } : item))
-      );
-      toast.success(t('messages.saveSuccess'));
-    } catch (error: any) {
-      toast.error(error?.response?.data?.message || error?.message || t('messages.saveFailed'));
-    } finally {
-      setSavingMessageId(null);
-    }
-  }
-
   const StatusBlock = () => (
     <div className="flex min-w-0 items-center justify-between gap-3 border-b p-4">
       <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
@@ -891,14 +853,7 @@ function AiMemoryPage() {
               </div>
             </div>
           ) : (
-            messages.map((message) => (
-              <AiMessageItem
-                key={message.id}
-                message={message}
-                savingMessageId={savingMessageId}
-                saveAsNote={saveAsNote}
-              />
-            ))
+            messages.map((message) => <AiMessageItem key={message.id} message={message} />)
           )}
           <div ref={messageEndRef} className="h-24 shrink-0" />
         </div>

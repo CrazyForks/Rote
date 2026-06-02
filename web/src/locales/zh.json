@@ -369,10 +369,21 @@
       "send": "发送",
       "clear": "清空对话",
       "backToBottom": "回到底部",
-      "saveAsNote": "保存为笔记",
+      "saveAsArticle": "保存为文章",
       "saved": "已保存",
-      "savedNoteTitle": "AI 记忆回答",
+      "savedArticleTitle": "AI 记忆回答",
+      "savedArticleNoteContent": "AI 记忆回答",
       "savedSourceTitle": "来源",
+      "actions": {
+        "copy": "复制",
+        "copySuccess": "已复制",
+        "copyFailed": "复制失败",
+        "exportImage": "保存图片",
+        "exportPdf": "打印 / 导出 PDF",
+        "exporting": "生成中...",
+        "exportSuccess": "图片已下载",
+        "exportFailed": "导出失败"
+      },
       "inputPlaceholder": "问问你的 Rote...",
       "empty": {
         "title": "问 Rote",
@@ -478,7 +489,7 @@
         "reading": "阅读并生成中...",
         "interrupted": "上次回答已中断",
         "askFailed": "请求失败",
-        "saveSuccess": "已保存为笔记",
+        "saveSuccess": "已保存为文章",
         "saveFailed": "保存失败"
       }
     },

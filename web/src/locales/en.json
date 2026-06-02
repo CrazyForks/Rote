@@ -379,10 +379,21 @@
       "send": "Send",
       "clear": "Clear chat",
       "backToBottom": "Back to bottom",
-      "saveAsNote": "Save as note",
+      "saveAsArticle": "Save as article",
       "saved": "Saved",
-      "savedNoteTitle": "AI Memory Answer",
+      "savedArticleTitle": "AI Memory Answer",
+      "savedArticleNoteContent": "AI Memory Answer",
       "savedSourceTitle": "Sources",
+      "actions": {
+        "copy": "Copy",
+        "copySuccess": "Copied",
+        "copyFailed": "Failed to copy",
+        "exportImage": "Save image",
+        "exportPdf": "Print / Save PDF",
+        "exporting": "Exporting...",
+        "exportSuccess": "Image downloaded",
+        "exportFailed": "Export failed"
+      },
       "inputPlaceholder": "Ask your Rote...",
       "empty": {
         "title": "Ask Rote",
@@ -488,7 +499,7 @@
         "reading": "Reading and generating...",
         "interrupted": "Previous answer was interrupted",
         "askFailed": "Request failed",
-        "saveSuccess": "Saved as note",
+        "saveSuccess": "Saved as article",
         "saveFailed": "Save failed"
       }
     },
