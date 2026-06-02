@@ -754,49 +754,17 @@ function mapFiltersTagsToSemanticScope(filters: AiRetrievalFilters): AiRetrieval
 function buildClarificationQuestion(plan: AiRetrievalPlan): string {
   const unresolved = collectUnresolvedTags(plan);
   if (unresolved.length > 0) {
-    return `我没有找到标签 ${unresolved.map((tag) => `#${tag}`).join('、')}。要换成已有标签，还是不限定标签、按关键词搜索？`;
+    return 'error_clarify_unresolved_tags';
   }
   if (plan.filters.time?.needsClarification) {
-    return '你想看的具体时间范围是哪一段？';
+    return 'error_clarify_ambiguous_time';
   }
-  return plan.clarificationQuestion || '这个范围有点模糊，可以再具体一点吗？';
+  return plan.clarificationQuestion || 'error_clarify_ambiguous_scope';
 }
 
-function buildSummary(plan: AiRetrievalPlan): string[] {
-  const summary: string[] = [];
-  if (plan.pagination === 'more') summary.push('查看更多');
-  const range = plan.filters.time?.normalizedRange;
-  if (range) summary.push(`时间：${range.label}`);
-  if (plan.filters.tags.include.length) {
-    summary.push(`标签：${plan.filters.tags.include.map((tag) => `#${tag}`).join('、')}`);
-  }
-  if (plan.filters.tags.exclude.length) {
-    summary.push(`排除：${plan.filters.tags.exclude.map((tag) => `#${tag}`).join('、')}`);
-  }
-  if (plan.filters.semanticScope.length) {
-    summary.push(`关键词：${plan.filters.semanticScope.join('、')}`);
-  }
-  if (plan.filters.sourceTypes.length === 1) {
-    summary.push(plan.filters.sourceTypes[0] === 'rote' ? '内容类型：笔记' : '内容类型：文章');
-  } else {
-    summary.push('内容类型：笔记+文章');
-  }
-  if (plan.filters.state === 'public') {
-    summary.push('可见性：公开');
-  } else if (plan.filters.state === 'private') {
-    summary.push('可见性：私密');
-  } else {
-    summary.push('可见性：私密+公开');
-  }
-  if (plan.filters.archived !== null) {
-    summary.push(plan.filters.archived ? '归档范围：仅归档' : '归档范围：未归档');
-  } else if (plan.filters.archivedScopeSpecified) {
-    summary.push('归档范围：全部');
-  }
-  if (plan.comparison) {
-    summary.push(`对比：${plan.comparison.groups.map((group) => group.label).join(' / ')}`);
-  }
-  return summary;
+function buildSummary(_plan: AiRetrievalPlan): string[] {
+  // Plan summary is rendered dynamically by the frontend (ScopeSummary) using i18n
+  return [];
 }
 
 const COMPLEX_MODIFIER_PATTERNS = [
@@ -965,7 +933,7 @@ export function reducePlan(
         return {
           ...fallbackPlan(output.patch?.query || ''),
           needsClarification: true,
-          clarificationQuestion: '你想看哪一类笔记的更多结果？',
+          clarificationQuestion: 'error_clarify_more_results',
           retrievalNeeded: false,
           pagination: null,
         };
@@ -988,7 +956,7 @@ export function reducePlan(
       return {
         ...fallbackPlan(''),
         needsClarification: true,
-        clarificationQuestion: '可以再具体一点吗？',
+        clarificationQuestion: 'error_clarify_ambiguous_scope',
         retrievalNeeded: false,
         pagination: null,
       };

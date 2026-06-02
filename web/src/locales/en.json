@@ -501,6 +501,10 @@
         "askFailed": "Request failed",
         "fallbackNoAnswerWithSources": "I found related memory, but the model did not return a usable answer. Please try again or narrow the scope.",
         "fallbackNoAnswerNoSources": "No matching memory was found, so I cannot answer from your notes yet.",
+        "clarifyUnresolvedTags": "I couldn't find the tag(s) {{tags}}. Would you like to use existing tags, or search by keywords instead?",
+        "clarifyAmbiguousTime": "Which specific time range would you like to see?",
+        "clarifyAmbiguousScope": "The scope is a bit ambiguous. Could you be more specific?",
+        "clarifyMoreResults": "For which notes would you like to see more results?",
         "saveSuccess": "Saved as article",
         "saveFailed": "Save failed"
       }

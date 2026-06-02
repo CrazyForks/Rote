@@ -503,13 +503,27 @@ function AiMemoryPage() {
             if (!isActiveRun(assistantId)) return;
             receivedClarification = true;
             const planTime = performance.now() - start;
+            let translatedContent = clarification.question;
+            if (clarification.question === 'error_clarify_unresolved_tags') {
+              const tags = clarification.pendingPlan?.filters?.tags?.unresolved || [];
+              translatedContent = t('messages.clarifyUnresolvedTags', {
+                tags: tags.map((tag) => `#${tag}`).join('、'),
+              });
+            } else if (clarification.question === 'error_clarify_ambiguous_time') {
+              translatedContent = t('messages.clarifyAmbiguousTime');
+            } else if (clarification.question === 'error_clarify_ambiguous_scope') {
+              translatedContent = t('messages.clarifyAmbiguousScope');
+            } else if (clarification.question === 'error_clarify_more_results') {
+              translatedContent = t('messages.clarifyMoreResults');
+            }
+
             setMessagesForActiveRun(assistantId, (prev) =>
               prev.map((message) =>
                 message.id === assistantId
                   ? settleAiMessageTimeline(
                       {
                         ...message,
-                        content: clarification.question,
+                        content: translatedContent,
                         plan: clarification.pendingPlan,
                         pendingPlan: clarification.pendingPlan,
                         clarification: true,

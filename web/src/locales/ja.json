@@ -501,6 +501,10 @@
         "askFailed": "リクエスト失敗",
         "fallbackNoAnswerWithSources": "関連する記憶が見つかりましたが、モデルから有効な回答が返されませんでした。別の質問を試すか、範囲を絞ってみてください。",
         "fallbackNoAnswerNoSources": "関連する記憶が見つからなかったため、現在のノートに基づいて回答することができません。",
+        "clarifyUnresolvedTags": "タグ {{tags}} が見つかりませんでした。既存のタグに変更するか、タグを限定せずにキーワードで検索しますか？",
+        "clarifyAmbiguousTime": "どの期間のノートを見たいですか？",
+        "clarifyAmbiguousScope": "範囲が少し曖昧です。もう少し具体的に指定していただけますか？",
+        "clarifyMoreResults": "どの種類のノートについてもっと見たいですか？",
         "saveSuccess": "記事として保存しました",
         "saveFailed": "保存失敗"
       }
