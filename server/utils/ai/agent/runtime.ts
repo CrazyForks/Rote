@@ -220,6 +220,7 @@ export async function runRoteAgentStream(params: {
   for (let step = 0; step < policy.maxIterations; step += 1) {
     const phase: RoteAgentPhase = step === 0 ? 'planning' : 'tool_calling';
     let assistantMessage: ChatMessage;
+    let responseUsage: Awaited<ReturnType<typeof createChatCompletionWithToolsStreaming>>['usage'];
     try {
       const response = await emitWithHeartbeat(params.emit, policy, phase, () =>
         createChatCompletionWithToolsStreaming(
@@ -242,9 +243,9 @@ export async function runRoteAgentStream(params: {
         )
       );
       assistantMessage = response.message;
+      responseUsage = response.usage;
       if (response.usage) {
         await logChatUsage(params.userId, params.config.chat.model, response.usage);
-        await params.emit({ type: 'usage', phase: 'tool_decision', usage: response.usage });
       }
     } catch (error: any) {
       if (step === 0 && isLikelyToolUnsupportedError(error)) {
@@ -256,7 +257,22 @@ export async function runRoteAgentStream(params: {
     const toolCalls = assistantMessage.tool_calls || [];
     if (!toolCalls.length) {
       hasFinalAnswer = !!assistantMessage.content?.trim();
+      if (responseUsage) {
+        await params.emit({
+          type: 'usage',
+          phase: hasFinalAnswer ? 'answer' : step === 0 ? 'planning' : 'tool_decision',
+          usage: responseUsage,
+        });
+      }
       break;
+    }
+
+    if (responseUsage) {
+      await params.emit({
+        type: 'usage',
+        phase: step === 0 ? 'planning' : 'tool_decision',
+        usage: responseUsage,
+      });
     }
 
     const validToolCalls = toolCalls.filter((toolCall) => toolByName.has(toolCall.function.name));
