@@ -60,6 +60,7 @@ export interface SemanticSearchResult {
 
 const VALID_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
 const MAX_VECTOR_SEARCH_LIMIT = 50;
+let embeddingJobsProcessing = false;
 
 function getRuntimeAiConfig(): AiConfig {
   return mergeAiConfig(getGlobalConfig<AiConfig>('ai') || DEFAULT_AI_CONFIG);
@@ -451,6 +452,46 @@ export async function enqueueBackfillEmbeddingJobs(): Promise<{ queued: number }
   }
 }
 
+export async function enqueueBackfillEmbeddingJobsForOwner(
+  ownerId: string
+): Promise<{ queued: number; skipped: boolean }> {
+  try {
+    const config = await getStoredAiConfig();
+    if (!shouldAutoIndex(config) || !(await isAiEligibleUser(ownerId))) {
+      return { queued: 0, skipped: true };
+    }
+
+    let queued = 0;
+    const roteRows = await db
+      .select({ id: rotes.id, ownerId: rotes.authorid })
+      .from(rotes)
+      .where(eq(rotes.authorid, ownerId));
+    const articleRows = await db
+      .select({ id: articles.id, ownerId: articles.authorId })
+      .from(articles)
+      .where(eq(articles.authorId, ownerId));
+
+    for (const row of roteRows) {
+      const source = await getSourceDocument('rote', row.id);
+      if (source && (await sourceNeedsEmbeddingBackfill('rote', source, config))) {
+        await enqueueEmbeddingJob('rote', row.id, row.ownerId, 'upsert', true);
+        queued += 1;
+      }
+    }
+    for (const row of articleRows) {
+      const source = await getSourceDocument('article', row.id);
+      if (source && (await sourceNeedsEmbeddingBackfill('article', source, config))) {
+        await enqueueEmbeddingJob('article', row.id, row.ownerId, 'upsert', true);
+        queued += 1;
+      }
+    }
+
+    return { queued, skipped: false };
+  } catch (error: any) {
+    throw new DatabaseError('Failed to enqueue user backfill embedding jobs', error);
+  }
+}
+
 export async function getEmbeddingJobStats(): Promise<Record<EmbeddingJobStatus, number>> {
   const rows = (await db.execute(sql`
     SELECT status, COUNT(*)::int AS count
@@ -561,42 +602,51 @@ export async function processPendingEmbeddingJobs(limit?: number): Promise<{
   failed: number;
   skipped: boolean;
 }> {
-  const config = await getStoredAiConfig();
-  if (!isVectorUsable(config) || config.indexing.paused) {
+  if (embeddingJobsProcessing) {
     return { processed: 0, failed: 0, skipped: true };
   }
+  embeddingJobsProcessing = true;
 
-  const batchSize = Math.min(Math.max(limit || config.indexing.batchSize || 1, 1), 20);
-  const jobs = await db.query.embeddingJobs.findMany({
-    where: (tbl, { eq }) => eq(tbl.status, 'pending'),
-    orderBy: (tbl) => [asc(tbl.createdAt)],
-    limit: batchSize,
-  });
-
-  let processed = 0;
-  let failed = 0;
-
-  for (const job of jobs) {
-    const attempts = (job.attempts || 0) + 1;
-    await markJob(job.id, 'running', { attempts });
-    try {
-      await processJob(job, config);
-      await markJob(job.id, 'succeeded', { attempts });
-      processed += 1;
-    } catch (error: any) {
-      const nextStatus: EmbeddingJobStatus =
-        attempts >= (config.indexing.maxRetries || DEFAULT_AI_CONFIG.indexing.maxRetries)
-          ? 'failed'
-          : 'pending';
-      await markJob(job.id, nextStatus, {
-        attempts,
-        error: error?.message || 'Unknown embedding error',
-      });
-      failed += 1;
+  try {
+    const config = await getStoredAiConfig();
+    if (!isVectorUsable(config) || config.indexing.paused) {
+      return { processed: 0, failed: 0, skipped: true };
     }
-  }
 
-  return { processed, failed, skipped: false };
+    const batchSize = Math.min(Math.max(limit || config.indexing.batchSize || 1, 1), 20);
+    const jobs = await db.query.embeddingJobs.findMany({
+      where: (tbl, { eq }) => eq(tbl.status, 'pending'),
+      orderBy: (tbl) => [asc(tbl.createdAt)],
+      limit: batchSize,
+    });
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const job of jobs) {
+      const attempts = (job.attempts || 0) + 1;
+      await markJob(job.id, 'running', { attempts });
+      try {
+        await processJob(job, config);
+        await markJob(job.id, 'succeeded', { attempts });
+        processed += 1;
+      } catch (error: any) {
+        const nextStatus: EmbeddingJobStatus =
+          attempts >= (config.indexing.maxRetries || DEFAULT_AI_CONFIG.indexing.maxRetries)
+            ? 'failed'
+            : 'pending';
+        await markJob(job.id, nextStatus, {
+          attempts,
+          error: error?.message || 'Unknown embedding error',
+        });
+        failed += 1;
+      }
+    }
+
+    return { processed, failed, skipped: false };
+  } finally {
+    embeddingJobsProcessing = false;
+  }
 }
 
 export async function retryFailedEmbeddingJobs(): Promise<{ retried: number }> {

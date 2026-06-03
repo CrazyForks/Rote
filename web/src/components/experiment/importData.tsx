@@ -187,21 +187,11 @@ export default function ImportData() {
     if (!fileData || !Array.isArray(fileData.notes)) return fileData;
 
     const notes = fileData.notes.filter((_: unknown, index: number) => !excludedIndexes.has(index));
-    const articleIds = new Set(
-      notes
-        .map((note: any) =>
-          typeof note?.articleId === 'string' ? note.articleId : note?.article?.id
-        )
-        .filter((articleId: unknown): articleId is string => typeof articleId === 'string')
-    );
 
     return {
       ...fileData,
       notes,
-      // TODO: Add article preview/exclusion; note-only filtering drops standalone articles.
-      articles: Array.isArray(fileData.articles)
-        ? fileData.articles.filter((article: any) => articleIds.has(article?.id))
-        : fileData.articles,
+      articles: fileData.articles,
     };
   };
 

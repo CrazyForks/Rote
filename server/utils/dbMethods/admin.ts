@@ -1,7 +1,11 @@
 import crypto from 'crypto';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { articles, attachments, rotes, userOpenKeys, users } from '../../drizzle/schema';
-import { deleteEmbeddingsForOwner, getEmbeddingJobStats } from './ai';
+import {
+  deleteEmbeddingsForOwner,
+  enqueueBackfillEmbeddingJobsForOwner,
+  getEmbeddingJobStats,
+} from './ai';
 import db from '../drizzle';
 
 // Admin 相关数据库方法
@@ -212,6 +216,12 @@ export async function deleteUserById(userId: string) {
 }
 
 export async function verifyUserEmail(userId: string) {
+  const [existingUser] = await db
+    .select({ emailVerified: users.emailVerified })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
   const [user] = await db
     .update(users)
     .set({ emailVerified: true, updatedAt: new Date() })
@@ -223,6 +233,11 @@ export async function verifyUserEmail(userId: string) {
       emailVerified: users.emailVerified,
       updatedAt: users.updatedAt,
     });
+  if (user && existingUser?.emailVerified === false) {
+    void enqueueBackfillEmbeddingJobsForOwner(user.id).catch((error) => {
+      console.error('Failed to enqueue verified user embedding backfill:', error);
+    });
+  }
   return user;
 }
 

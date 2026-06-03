@@ -165,9 +165,6 @@ router.post('/articles', isOpenKeyOk, requireOpenKeyPerm('SENDARTICLE'), async (
   const openKey = c.get('openKey')!;
   const { content } = body as { content: string };
   const article = await createArticle({ content, authorId: openKey.userid });
-  void enqueueEmbeddingJob('article', article.id, openKey.userid).catch((error) => {
-    console.error('Failed to enqueue article embedding job (openkey):', error);
-  });
   return c.json(createResponse(article), 201);
 });
 
@@ -283,10 +280,6 @@ router.put(
     if (!updated) {
       throw new Error('Article not found or permission denied');
     }
-
-    void enqueueEmbeddingJob('article', id, openKey.userid).catch((error) => {
-      console.error('Failed to enqueue article embedding job (openkey):', error);
-    });
 
     return c.json(createResponse(updated), 200);
   }
