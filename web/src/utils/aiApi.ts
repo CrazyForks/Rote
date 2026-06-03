@@ -9,6 +9,10 @@ export interface AiStatus {
   publicExploreVectorEnabled: boolean;
   eligible: boolean;
   available: boolean;
+  memoryStats?: {
+    roteCount: number;
+    indexedRoteCount: number;
+  };
 }
 
 export interface AiSemanticResult {

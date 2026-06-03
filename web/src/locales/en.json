@@ -418,6 +418,12 @@
         "unverified": "Verify your email to use AI",
         "unavailable": "AI or vector index is not available"
       },
+      "memoryStats": {
+        "title": "Memory Overview",
+        "roteCount": "Notes Count",
+        "vectorProgress": "Vectorized",
+        "vectorProgressValue": "{{percent}}%"
+      },
       "privacy": {
         "title": "Conversation Note",
         "description": "AI conversations stay in the current browser session and are not persisted to the database."

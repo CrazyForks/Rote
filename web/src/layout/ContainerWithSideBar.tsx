@@ -35,7 +35,7 @@ function ContainerWithSideBar({
       {(sidebar || sidebarHeader) && (
         <SideContentLayout>
           {sidebarHeader}
-          {sidebar && <div className="sticky top-0 flex w-full flex-col divide-y">{sidebar}</div>}
+          {sidebar && <div className="flex w-full flex-col divide-y">{sidebar}</div>}
         </SideContentLayout>
       )}
 

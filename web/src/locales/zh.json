@@ -408,6 +408,12 @@
         "unverified": "验证邮箱后可使用 AI",
         "unavailable": "AI 或向量索引暂不可用"
       },
+      "memoryStats": {
+        "title": "记忆概览",
+        "roteCount": "笔记数量",
+        "vectorProgress": "向量化进度",
+        "vectorProgressValue": "{{percent}}%"
+      },
       "privacy": {
         "title": "对话说明",
         "description": "AI 对话只保存在当前浏览器会话中，不会持久化写入数据库。"

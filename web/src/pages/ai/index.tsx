@@ -4,7 +4,6 @@ import NavBar from '@/components/layout/navBar';
 import { SoftBottom } from '@/components/others/SoftBottom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
 import {
   aiChatMessagesAtom,
@@ -27,13 +26,9 @@ import {
   ArrowUpRight,
   BrainCircuit,
   BrainCog,
-  Info,
   Loader,
-  RefreshCw,
   Send,
   Sparkles,
-  ToggleLeft,
-  ToggleRight,
   Trash2,
 } from 'lucide-react';
 import {
@@ -92,6 +87,10 @@ function AiMemoryPage() {
   const unavailableText =
     status?.eligible === false ? t('status.unverified') : t('status.unavailable');
   const canSend = !isSending && !unavailable && input.trim().length > 0;
+  const memoryStats = status?.memoryStats;
+  const indexedRoteCount = memoryStats?.indexedRoteCount ?? 0;
+  const roteCount = memoryStats?.roteCount ?? 0;
+  const vectorProgress = roteCount > 0 ? Math.round((indexedRoteCount / roteCount) * 100) : 0;
 
   function getAgentPhaseLabel(phase: AiAgentPhase) {
     return t(`timeline.phases.${phase}`);
@@ -201,86 +200,110 @@ function AiMemoryPage() {
     }
   }
 
-  const StatusBlock = () => (
-    <div className="flex min-w-0 items-center justify-between gap-3 border-b p-4">
-      <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-        {status?.available ? (
-          <ToggleRight className="size-4 shrink-0" />
-        ) : (
-          <ToggleLeft className="text-error size-4 shrink-0" />
-        )}
-        <span className="min-w-0 truncate">{t('status.title')}</span>
+  const StatusBlock = () => {
+    const statusText = isStatusLoading
+      ? t('status.checking')
+      : status?.available
+        ? t('status.ready')
+        : unavailableText;
+
+    return (
+      <div className="px-4 py-2">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="text-md min-w-0 truncate">{t('status.title')}</div>
+          <div className="text-info flex min-w-0 items-center justify-end gap-2 text-right text-xs font-light">
+            {isStatusLoading || isStatusValidating ? (
+              <Loader className="size-3 shrink-0 animate-spin" />
+            ) : null}
+            {!isStatusLoading && !status?.available ? (
+              <button
+                type="button"
+                className="hover:text-foreground min-w-0 cursor-pointer truncate text-left duration-200 hover:opacity-60"
+                onClick={() => refreshStatus()}
+              >
+                {statusText}
+              </button>
+            ) : (
+              <span className="min-w-0 truncate">{statusText}</span>
+            )}
+          </div>
+        </div>
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-sm">
+          <span className="text-info min-w-0 truncate font-light">
+            {t('memoryStats.roteCount')}
+          </span>
+          <span className="shrink-0 font-mono tabular-nums">
+            {isStatusLoading ? '-' : roteCount.toLocaleString()}
+          </span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-sm">
+          <span className="text-info min-w-0 truncate font-light">
+            {t('memoryStats.vectorProgress')}
+          </span>
+          <span className="shrink-0 font-mono tabular-nums">
+            {isStatusLoading
+              ? '-'
+              : t('memoryStats.vectorProgressValue', { percent: vectorProgress })}
+          </span>
+        </div>
+        <div className="text-info mt-2 line-clamp-3 text-xs font-light">
+          {t('privacy.description')}
+        </div>
       </div>
-      <div className="text-info flex min-w-0 items-center justify-end gap-2 text-right text-xs">
-        {isStatusLoading ? (
-          <span className="min-w-0 truncate">{t('status.checking')}</span>
-        ) : status?.available ? (
-          <span className="min-w-0 truncate">{t('status.ready')}</span>
-        ) : (
-          <button
-            className="hover:text-theme min-w-0 truncate duration-200"
-            onClick={() => refreshStatus()}
-          >
-            {unavailableText}
-          </button>
-        )}
-        {isStatusValidating && <RefreshCw className="text-theme size-3 animate-spin" />}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const SideBar = () => (
-    <div className="divide-y">
+    <div className="flex w-full flex-col divide-y">
       <StatusBlock />
-      <div className="p-4">
-        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          <Info className="size-4 shrink-0" />
-          <span className="min-w-0 truncate">{t('privacy.title')}</span>
+      <div className="divide-border/50 flex flex-col divide-y">
+        <div className="px-4 py-2">
+          <div className="text-md">{t('quick.title')}</div>
+          <div className="text-info text-xs font-light">{t('empty.desc')}</div>
         </div>
-        <p className="text-info mt-2 text-xs leading-5">{t('privacy.description')}</p>
-      </div>
-      <div className="p-4">
-        <div className="text-sm font-semibold">{t('quick.title')}</div>
-        <div className="relative mt-3 flex flex-col gap-2 pb-6">
+        <div className="grid w-4/5 gap-2 px-4 py-2">
           {(isPromptsExpanded ? quickPrompts : quickPrompts.slice(0, 4)).map((prompt) => (
-            <Button
+            <button
               key={prompt}
               type="button"
-              variant="link"
-              className="h-auto w-full min-w-0 cursor-pointer justify-start p-0 text-left text-sm font-normal break-all whitespace-normal underline"
+              className="hover:text-info min-w-0 cursor-pointer text-left text-sm duration-200 hover:opacity-60 disabled:pointer-events-none disabled:opacity-40"
               disabled={isSending || unavailable}
               onClick={() => sendMessage(prompt, { ignorePendingPlan: true })}
             >
-              {prompt}
-            </Button>
+              <span className="line-clamp-2 min-w-0">{prompt}</span>
+            </button>
           ))}
           {!isPromptsExpanded && quickPrompts.length > 4 && (
-            <SoftBottom>
-              <div
-                className="text-info hover:text-foreground pointer-events-auto flex cursor-pointer items-center justify-center gap-1 text-sm duration-300"
-                onClick={() => setIsPromptsExpanded(true)}
-              >
-                <ArrowDownLeft className="size-4" /> {t('quick.expand')}
-              </div>
-            </SoftBottom>
+            <button
+              type="button"
+              className="text-info hover:text-foreground flex cursor-pointer items-center gap-2 text-sm duration-200 hover:opacity-60"
+              onClick={() => setIsPromptsExpanded(true)}
+            >
+              <ArrowDownLeft className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">{t('quick.expand')}</span>
+            </button>
           )}
           {isPromptsExpanded && quickPrompts.length > 4 && (
-            <div
-              className="text-info hover:text-foreground pointer-events-auto mt-1 flex w-full cursor-pointer items-center justify-center gap-1 text-sm duration-300"
+            <button
+              type="button"
+              className="text-info hover:text-foreground flex cursor-pointer items-center gap-2 text-sm duration-200 hover:opacity-60"
               onClick={() => setIsPromptsExpanded(false)}
             >
-              <ArrowUpRight className="size-4" /> {t('quick.collapse')}
-            </div>
+              <ArrowUpRight className="size-4 shrink-0" />
+              <span className="min-w-0 truncate">{t('quick.collapse')}</span>
+            </button>
           )}
         </div>
       </div>
-      <ScrollArea className="max-h-[45dvh]">
-        <AiSourceList
-          sources={visibleSources}
-          title={t('sources.title')}
-          emptyLabel={t('sources.empty')}
-        />
-      </ScrollArea>
+      <div className="divide-border/50 flex flex-col divide-y">
+        <div className="px-4 py-2">
+          <div className="text-md">{t('sources.title')}</div>
+          {visibleSources.length === 0 && (
+            <div className="text-info text-xs font-light">{t('sources.empty')}</div>
+          )}
+        </div>
+        <AiSourceList sources={visibleSources} emptyLabel={t('sources.empty')} />
+      </div>
     </div>
   );
 

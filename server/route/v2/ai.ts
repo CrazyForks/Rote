@@ -19,6 +19,7 @@ import {
   findArticleById,
   findRoteById,
   getEmbeddingJobStats,
+  getOwnerAiMemoryStats,
   getPgvectorStatus,
   getStoredAiConfig,
   isAiEligibleUser,
@@ -162,6 +163,7 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
   const config = await getStoredAiConfig();
   const vectorStatus = await getPgvectorStatus();
   const eligible = await isAiEligibleUser(user.id);
+  const memoryStats = await getOwnerAiMemoryStats(user.id);
   return c.json(
     createResponse({
       enabled: config.enabled,
@@ -169,6 +171,7 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
       publicExploreVectorEnabled: config.publicExploreVectorEnabled,
       eligible,
       available: eligible && config.enabled && config.vectorEnabled && vectorStatus.installed,
+      memoryStats,
     }),
     200
   );

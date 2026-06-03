@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq, sql } from 'drizzle-orm';
 import {
   articles,
   documentEmbeddings,
@@ -93,6 +93,32 @@ export async function isAiEligibleUser(userId: string): Promise<boolean> {
     .where(eq(users.id, userId))
     .limit(1);
   return user?.emailVerified === true;
+}
+
+export async function getOwnerAiMemoryStats(ownerId: string): Promise<{
+  roteCount: number;
+  indexedRoteCount: number;
+}> {
+  try {
+    const [[roteCountResult], indexedRoteRows] = await Promise.all([
+      db.select({ count: count() }).from(rotes).where(eq(rotes.authorid, ownerId)),
+      db.execute(sql`
+        SELECT COUNT(DISTINCT de."sourceId")::int AS count
+        FROM "document_embeddings" de
+        INNER JOIN "rotes" r ON r."id" = de."sourceId"
+        WHERE de."ownerId" = ${ownerId}
+          AND de."sourceType" = 'rote'
+          AND r."authorid" = ${ownerId}
+      `) as Promise<Array<{ count: number }>>,
+    ]);
+
+    return {
+      roteCount: Number(roteCountResult?.count) || 0,
+      indexedRoteCount: Number(indexedRoteRows[0]?.count) || 0,
+    };
+  } catch (error: any) {
+    throw new DatabaseError('Failed to get AI memory stats', error);
+  }
 }
 
 function hashText(value: string): string {

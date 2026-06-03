@@ -418,6 +418,12 @@
         "unverified": "メール確認後に AI を利用できます",
         "unavailable": "AI またはベクトル索引を利用できません"
       },
+      "memoryStats": {
+        "title": "メモリー概要",
+        "roteCount": "ノート数",
+        "vectorProgress": "ベクトル化進捗",
+        "vectorProgressValue": "{{percent}}%"
+      },
       "privacy": {
         "title": "会話について",
         "description": "AI との会話は現在のブラウザセッション内にのみ保存され、データベースには永続保存されません。"
