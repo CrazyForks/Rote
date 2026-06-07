@@ -2,6 +2,7 @@ import { VerifiedIcon } from '@/components/icons/Verified';
 import { RelatedNotesBlock } from '@/components/ai/RelatedNotesBlock';
 import NavBar from '@/components/layout/navBar';
 import LoadingPlaceholder from '@/components/others/LoadingPlaceholder';
+import PageRequestError from '@/components/others/PageRequestError';
 import UserAvatar from '@/components/others/UserAvatar';
 import RoteItem from '@/components/rote/roteItem';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
@@ -10,6 +11,7 @@ import { profileAtom } from '@/state/profile';
 
 import type { Rote } from '@/types/main';
 import { API_URL, get } from '@/utils/api';
+import { isNotFoundError } from '@/utils/error';
 import { useAPIGet } from '@/utils/fetcher';
 import { useAtomValue } from 'jotai';
 import { Navigation, RefreshCw, Rss } from 'lucide-react';
@@ -30,22 +32,17 @@ function SingleRotePage() {
     error,
     mutate,
     isValidating,
-  } = useAPIGet<Rote>(roteid || '', () => get('/notes/' + roteid).then((res) => res.data), {
-    onError: (err: any) => {
-      // 捕获所有错误情况，包括：
-      // 1. 网络错误（后端挂掉、连接超时等）- 没有 response
-      // 2. HTTP 错误状态码（404, 500, 502, 503 等）
-      // 3. 业务错误（返回的数据格式不正确）
-      const hasResponse = err?.response !== undefined;
-      const status = err?.response?.status;
-
-      // 如果是网络错误（没有 response）或任何错误状态码（>= 400），都跳转404
-      // 这包括：后端挂掉、连接超时、404、500、502、503 等所有错误情况
-      if (!hasResponse || (status && status >= 400)) {
-        navigate('/404');
-      }
-    },
-  });
+  } = useAPIGet<Rote>(
+    roteid ? `/notes/${roteid}` : null,
+    () => get('/notes/' + roteid).then((res) => res.data),
+    {
+      onError: (err: unknown) => {
+        if (isNotFoundError(err)) {
+          navigate('/404', { replace: true });
+        }
+      },
+    }
+  );
 
   const refreshData = () => {
     if (isLoading || isValidating) {
@@ -60,29 +57,34 @@ function SingleRotePage() {
     }
   }, [roteid, navigate]);
 
-  // 验证返回的数据是否有效
-  // 如果数据加载完成但没有有效的笔记信息，也跳转404
-  useEffect(() => {
-    // 只有在加载完成且没有错误时才验证数据
-    // 如果 error 存在，onError 已经处理了跳转，这里不需要再处理
-    if (!isLoading && !error) {
-      // 验证笔记信息是否有效：至少需要有 id、content 和 author
-      // 如果返回的数据不是预期的笔记信息格式，也跳转404
-      if (
-        !rote ||
-        typeof rote !== 'object' ||
-        !rote.id ||
-        !rote.content ||
-        !rote.author ||
-        !rote.author.username
-      ) {
-        navigate('/404');
-      }
-    }
-  }, [isLoading, error, rote, navigate]);
-
   if (!roteid) {
     return null;
+  }
+
+  const hasValidRote = Boolean(
+    rote &&
+    typeof rote === 'object' &&
+    rote.id &&
+    typeof rote.content === 'string' &&
+    rote.author?.username
+  );
+  const hasLoadFailure = Boolean(
+    (error && !hasValidRote) || (!isLoading && !error && !hasValidRote)
+  );
+
+  if (hasLoadFailure) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+
+    return (
+      <PageRequestError
+        error={error}
+        onRetry={() => {
+          void mutate();
+        }}
+      />
+    );
   }
 
   const isOwner = Boolean(profile?.username && rote?.author?.username === profile.username);

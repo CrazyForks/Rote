@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-export default function ErrorPage() {
+export default function NotFoundPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.error' });
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,7 +20,7 @@ export default function ErrorPage() {
       <main className="bg-background flex h-dvh place-items-center items-center justify-center px-6">
         <div className="flex flex-col gap-2">
           <p className="text-primary bg-black bg-clip-text font-mono text-[100px] font-semibold lg:text-[200px] dark:text-white">
-            40X
+            404
           </p>
           <h1 className="text-primary/90 text-base font-bold tracking-tight lg:text-2xl dark:text-white/90">
             {t('pageNotFound')}
