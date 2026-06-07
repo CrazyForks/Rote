@@ -71,19 +71,52 @@ const api = axios.create({
   withCredentials: true,
 });
 
+let refreshPromise: Promise<string> | null = null;
+
+function clearExpiredSession() {
+  authService.clearTokens();
+  if (localStorage.getItem('profile')) {
+    localStorage.removeItem('profile');
+    window.location.href = '/login';
+  }
+}
+
+function refreshAccessTokenOnce(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+
+  return refreshPromise;
+}
+
 // 请求拦截器
 api.interceptors.request.use(
-  (config) => {
+  async (config) => {
     // 动态设置 baseURL，确保每次请求都使用最新的配置
     // 这样可以避免在配置注入前就使用旧的 baseURL
     if (!config.baseURL) {
       config.baseURL = getApiUrl();
     }
 
-    // 添加 JWT token
-    const token = authService.getAccessToken();
-    if (token && !authService.isTokenExpired(token)) {
-      config.headers.Authorization = `Bearer ${token}`;
+    let accessToken = authService.getAccessToken();
+
+    // 可选鉴权接口不会为游客返回 401，因此 access token 过期时必须在请求前主动刷新。
+    if (
+      (!accessToken || authService.isTokenExpired(accessToken)) &&
+      authService.hasValidRefreshToken()
+    ) {
+      try {
+        accessToken = await refreshAccessTokenOnce();
+      } catch (error) {
+        clearExpiredSession();
+        return Promise.reject(error);
+      }
+    }
+
+    if (accessToken && !authService.isTokenExpired(accessToken)) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
     }
 
     return config;
@@ -128,42 +161,15 @@ api.interceptors.response.use(
     if (error.response && error.response.status === 401) {
       // 如果是JWT认证失败，尝试刷新token
       if (authService.hasValidRefreshToken() && !originalRequest._retry) {
-        if (isRefreshing) {
-          // 如果正在刷新，等待刷新完成，并自动重试原请求
-          return new Promise((resolve, reject) => {
-            failedQueue.push({ resolve, reject });
-          })
-            .then((token) => {
-              // 刷新完成后，自动为原请求补充新token并重试
-              if (token) {
-                originalRequest.headers.Authorization = `Bearer ${token}`;
-              }
-              return api(originalRequest);
-            })
-            .catch((err) => Promise.reject(err));
-        }
-
         originalRequest._retry = true;
-        isRefreshing = true;
 
         try {
-          // 刷新token
-          const newToken = await refreshAccessToken();
-          processQueue(null, newToken);
-          // 刷新成功后，自动为原请求补充新token并重试
+          const newToken = await refreshAccessTokenOnce();
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return api(originalRequest);
         } catch (refreshError) {
-          processQueue(refreshError);
-          // 刷新失败，清除所有token并跳转到登录页
-          authService.clearTokens();
-          if (localStorage.getItem('profile')) {
-            localStorage.removeItem('profile');
-          }
-          window.location.href = '/login';
+          clearExpiredSession();
           return Promise.reject(refreshError);
-        } finally {
-          isRefreshing = false;
         }
       } else {
         // 没有有效的refresh token或者是旧的session认证
@@ -176,25 +182,6 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
-
-// Token刷新功能
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (_value: any) => void;
-  reject: (_error: any) => void;
-}> = [];
-
-const processQueue = (error: any, token: string | null = null) => {
-  failedQueue.forEach(({ resolve, reject }) => {
-    if (error) {
-      reject(error);
-    } else {
-      resolve(token);
-    }
-  });
-
-  failedQueue = [];
-};
 
 export const refreshAccessToken = async (): Promise<string> => {
   const refreshTokenValue = authService.getRefreshToken();
