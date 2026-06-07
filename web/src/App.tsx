@@ -1,6 +1,7 @@
 import { Toaster } from '@/components/ui/sonner';
 import { useSiteStatus } from '@/hooks/useSiteStatus';
 import { bootstrapAuthAtom } from '@/state/profile';
+import { getHttpStatus } from '@/utils/error';
 import { Helmet, HelmetProvider } from '@dr.pogodin/react-helmet';
 import { useSetAtom } from 'jotai';
 import React from 'react';
@@ -31,7 +32,8 @@ const AppWrapper = () => (
       <SWRConfig
         value={{
           onErrorRetry: (error, key, _config, _revalidate, { retryCount }) => {
-            if ([404, 401, 403].includes(error.status)) return;
+            const status = getHttpStatus(error);
+            if (status && [404, 401, 403].includes(status)) return;
             if (key === 'profile') return;
             if (retryCount >= 3) return;
           },

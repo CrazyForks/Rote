@@ -5,7 +5,7 @@ import { useAuthState } from '@/state/profile';
 import { createBrowserRouter, Navigate, Outlet, RouterProvider } from 'react-router-dom';
 import { ProtectedRoute } from './protectedRoute';
 
-import ErrorPage from '@/pages/404';
+import NotFoundPage from '@/pages/404';
 import AdminDashboard from '@/pages/admin';
 import AiMemoryPage from '@/pages/ai';
 import PrivacyPolicyPage from '@/pages/app/privacy';
@@ -15,6 +15,7 @@ import ArticleDetailPage from '@/pages/article/[articleid]';
 import ArticleEditPage from '@/pages/article/edit';
 import SelfhostedGuidePage from '@/pages/doc/selfhosted';
 import ExperimentPage from '@/pages/experiment';
+import RouteErrorPage from '@/pages/error';
 import ExplorePage from '@/pages/explore';
 import MineFilter from '@/pages/filter';
 import HomePage from '@/pages/home';
@@ -63,7 +64,7 @@ export default function GlobalRouterProvider() {
   const router = createBrowserRouter([
     {
       element: <RootLayout />,
-      errorElement: <ErrorPage />,
+      errorElement: <RouteErrorPage />,
       children: [
         {
           path: 'landing',
@@ -75,7 +76,7 @@ export default function GlobalRouterProvider() {
         },
         {
           path: '404',
-          element: <ErrorPage />,
+          element: <NotFoundPage />,
         },
         {
           path: 'setup',
@@ -118,7 +119,7 @@ export default function GlobalRouterProvider() {
                   <HomePage />
                 </ProtectedRoute>
               ),
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'filter',
@@ -127,7 +128,7 @@ export default function GlobalRouterProvider() {
                   <MineFilter />
                 </ProtectedRoute>
               ),
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'ai',
@@ -136,7 +137,7 @@ export default function GlobalRouterProvider() {
                   <AiMemoryPage />
                 </ProtectedRoute>
               ),
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'profile',
@@ -145,7 +146,7 @@ export default function GlobalRouterProvider() {
                   <ProfilePage />
                 </ProtectedRoute>
               ),
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'profile/setting',
@@ -154,16 +155,16 @@ export default function GlobalRouterProvider() {
                   <SettingsPage />
                 </ProtectedRoute>
               ),
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'explore',
               element: <ExplorePage />,
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
             {
               path: 'admin',
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
               element: (
                 <ProtectedRoute>
                   <AdminDashboard />
@@ -172,7 +173,7 @@ export default function GlobalRouterProvider() {
             },
             {
               path: 'rote',
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
               children: [
                 {
                   path: ':roteid',
@@ -182,7 +183,7 @@ export default function GlobalRouterProvider() {
             },
             {
               path: 'article',
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
               children: [
                 {
                   path: 'new',
@@ -208,7 +209,7 @@ export default function GlobalRouterProvider() {
             },
             {
               path: 'archived',
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
               element: (
                 <ProtectedRoute>
                   <ArchivedPage />
@@ -217,7 +218,7 @@ export default function GlobalRouterProvider() {
             },
             {
               path: 'experiment',
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
               element: (
                 <ProtectedRoute>
                   <ExperimentPage />
@@ -227,13 +228,13 @@ export default function GlobalRouterProvider() {
             {
               path: ':username',
               element: <UserPage />,
-              errorElement: <ErrorPage />,
+              errorElement: <RouteErrorPage />,
             },
           ],
         },
         {
           path: '*',
-          element: <ErrorPage />,
+          element: <NotFoundPage />,
         },
       ],
     },

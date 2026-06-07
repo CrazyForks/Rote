@@ -166,8 +166,13 @@
       }
     },
     "error": {
-      "pageNotFound": "页面未找到或发生错误",
+      "pageNotFound": "页面未找到",
       "pageNotFoundDesc": "抱歉，我们无法找到您要访问的页面",
+      "pageError": "页面发生错误",
+      "pageErrorDesc": "页面加载时出现了意外错误，请重试。",
+      "loadFailed": "内容加载失败",
+      "loadFailedDesc": "暂时无法获取内容，请检查网络后重试。",
+      "retry": "重试",
       "back": "返回",
       "goHome": "回到首页"
     },
