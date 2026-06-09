@@ -45,15 +45,14 @@ async function getPublicAiStatus() {
       aiConfig.enabled === true &&
       Boolean(aiConfig.chat?.baseUrl?.trim()) &&
       Boolean(aiConfig.chat?.model?.trim());
+    const available =
+      chatAvailable && aiConfig.vectorEnabled === true && vectorStatus.installed === true;
 
     return {
       enabled: aiConfig.enabled === true,
       vectorEnabled: aiConfig.vectorEnabled === true,
       publicExploreVectorEnabled: aiConfig.publicExploreVectorEnabled === true,
-      available:
-        aiConfig.enabled === true &&
-        aiConfig.vectorEnabled === true &&
-        vectorStatus.installed === true,
+      available,
       chatAvailable,
       vectorAvailable: vectorStatus.available === true,
       vectorInstalled: vectorStatus.installed === true,

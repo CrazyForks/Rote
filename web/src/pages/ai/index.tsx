@@ -213,13 +213,13 @@ function AiMemoryPage() {
   }
 
   const StatusBlock = () => {
-    const statusText = isStatusLoading
-      ? t('status.checking')
-      : status?.available
-        ? t('status.ready')
-        : status?.chatAvailable
-          ? t('status.chatReady')
-          : unavailableText;
+    const statusText = (() => {
+      if (isStatusLoading) return t('status.checking');
+      if (isPersonalModelMode) return personalAiReady ? t('status.ready') : unavailableText;
+      if (status?.available) return t('status.ready');
+      if (status?.eligible === false) return unavailableText;
+      return status?.chatAvailable ? t('status.chatReady') : unavailableText;
+    })();
     const providerText =
       personalAi.mode === 'personal'
         ? t('model.personal')

@@ -164,6 +164,8 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
     config.enabled === true &&
     Boolean(config.chat?.baseUrl?.trim()) &&
     Boolean(config.chat?.model?.trim());
+  const available =
+    eligible && chatAvailable && config.vectorEnabled === true && vectorStatus.installed === true;
   return c.json(
     createResponse({
       enabled: config.enabled,
@@ -174,7 +176,7 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
       chatProviderId: config.chat?.providerId || '',
       chatModel: config.chat?.model || '',
       chatMode: config.enabled ? (isLocalChat ? 'local' : 'site') : 'disabled',
-      available: eligible && config.enabled && config.vectorEnabled && vectorStatus.installed,
+      available,
       memoryStats,
     }),
     200
