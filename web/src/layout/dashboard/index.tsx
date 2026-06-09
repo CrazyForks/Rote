@@ -99,7 +99,8 @@ function LayoutDashboard() {
 
   // 根据用户角色动态生成 tabs
   const userTabs = useMemo(() => {
-    const tabs = [...baseTabs];
+    const canShowAi = tokenValid === true;
+    const tabs = canShowAi ? [...baseTabs] : baseTabs.filter((tab) => tab.name !== 'aiMemory');
     // 如果是管理员或超级管理员，添加管理员 tab
     if (profile && (profile.role === 'admin' || profile.role === 'super_admin')) {
       tabs.splice(tabs.length - 1, 0, ...adminTabs);
@@ -109,7 +110,7 @@ function LayoutDashboard() {
       name: 'logout',
     });
     return tabs;
-  }, [profile]);
+  }, [profile, tokenValid]);
 
   async function logOutFn() {
     setIsLogoutDialogOpen(false);

@@ -67,8 +67,12 @@ interface SiteStatusData {
     vectorEnabled: boolean;
     publicExploreVectorEnabled: boolean;
     available: boolean;
+    chatAvailable: boolean;
     vectorAvailable: boolean;
     vectorInstalled: boolean;
+    chatProviderId: string;
+    chatModel: string;
+    chatMode: 'disabled' | 'site' | 'local';
   };
   frontendConfig: FrontendConfig;
   timestamp: string;

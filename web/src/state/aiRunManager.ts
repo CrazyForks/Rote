@@ -2,15 +2,15 @@ import { getDefaultStore } from 'jotai';
 import { toast } from 'sonner';
 import {
   aiAgentStream,
+  personalAgentStream,
   type AiAgentClientState,
   type AiAgentPhase,
-  type AiChatStreamHandlers,
   type AiAgentToolProgressStatus,
+  type AiChatStreamHandlers,
   type AiTokenUsage,
   type AiUsagePhase,
 } from '@/utils/aiApi';
-import { localAiAgentStream } from '@/utils/localAiAgent';
-import type { AiModelMode, LocalAiConfig } from '@/state/localAi';
+import type { PersonalAiProviderConfig, PersonalAiMode } from '@/state/localAi';
 import {
   aiChatMessagesAtom,
   aiRunStateAtom,
@@ -54,9 +54,8 @@ type StartAiRunParams = {
   pendingPlan: AiMemoryMessage['pendingPlan'] | null;
   ignorePendingPlan?: boolean;
   unavailable: boolean;
-  modelMode: AiModelMode;
-  localConfig: LocalAiConfig;
-  localToolsAvailable: boolean;
+  mode: PersonalAiMode;
+  personalConfig?: PersonalAiProviderConfig;
   labels: AiRunLabels;
 };
 
@@ -330,8 +329,13 @@ export async function startAiRun(params: StartAiRunParams): Promise<boolean> {
       ? null
       : getLatestAiAssistantPlan(params.messages);
     const excludeIds = seenSourceIds.size > 0 ? Array.from(seenSourceIds) : undefined;
+    const isPersonalAgent = params.mode === 'personal';
 
-    const payload = {
+    if (isPersonalAgent && !params.personalConfig?.enabled) {
+      throw new Error('Personal AI is not enabled');
+    }
+
+    const agentPayload = {
       message: question,
       pendingPlan: activePendingPlan,
       clarificationAnswer: activePendingPlan ? question : undefined,
@@ -345,7 +349,8 @@ export async function startAiRun(params: StartAiRunParams): Promise<boolean> {
         stateVersion: 1,
       },
     };
-    const handlers = {
+
+    const agentHandlers: AiChatStreamHandlers = {
       onRunStarted: (runId) => {
         if (!isActiveRun(assistantId)) return;
         mergeAgentState({ conversationId: runId });
@@ -497,18 +502,16 @@ export async function startAiRun(params: StartAiRunParams): Promise<boolean> {
           state.seenSourceIds.forEach((id) => seenSourceIds.add(id));
         }
       },
-    } satisfies AiChatStreamHandlers;
+    };
 
-    if (params.modelMode === 'local') {
-      await localAiAgentStream({
-        config: params.localConfig,
-        payload,
-        handlers,
-        toolsAvailable: params.localToolsAvailable,
-        signal: controller.signal,
-      });
+    if (isPersonalAgent) {
+      await personalAgentStream(
+        { ...agentPayload, provider: params.personalConfig! },
+        agentHandlers,
+        controller.signal
+      );
     } else {
-      await aiAgentStream(payload, handlers, controller.signal);
+      await aiAgentStream(agentPayload, agentHandlers, controller.signal);
     }
 
     if (!receivedClarification) {

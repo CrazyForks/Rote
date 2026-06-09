@@ -17,9 +17,11 @@ vi.mock('@/utils/aiApi', () => ({
 }));
 
 const config = {
-  bridgeUrl: 'http://127.0.0.1:11435',
-  token: 'token',
+  enabled: true,
+  baseUrl: 'http://127.0.0.1:11435/v1',
   model: 'gemma-local',
+  apiKey: 'token',
+  temperature: 0.2,
 };
 
 beforeEach(() => {

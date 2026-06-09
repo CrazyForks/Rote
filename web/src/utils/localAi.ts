@@ -1,4 +1,4 @@
-import type { LocalAiConfig } from '@/state/localAi';
+import type { PersonalAiProviderConfig } from '@/state/localAi';
 import type { AiTokenUsage } from '@/utils/aiApi';
 
 export type LocalChatToolCall = {
@@ -26,14 +26,14 @@ export type LocalChatToolDefinition = {
   };
 };
 
-function normalizeBridgeUrl(value: string) {
+function normalizeBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
 }
 
-function buildHeaders(config: LocalAiConfig) {
+function buildHeaders(config: PersonalAiProviderConfig) {
   return {
     'Content-Type': 'application/json',
-    ...(config.token.trim() ? { Authorization: `Bearer ${config.token.trim()}` } : {}),
+    ...(config.apiKey.trim() ? { Authorization: `Bearer ${config.apiKey.trim()}` } : {}),
   };
 }
 
@@ -74,38 +74,35 @@ function parseToolCallArguments(value: unknown): string {
   return '{}';
 }
 
-export async function testLocalAiConnection(config: LocalAiConfig): Promise<void> {
-  const response = await fetch(`${normalizeBridgeUrl(config.bridgeUrl)}/health`, {
+export async function testLocalAiConnection(config: PersonalAiProviderConfig): Promise<void> {
+  const response = await fetch(`${normalizeBaseUrl(config.baseUrl)}/models`, {
     headers: buildHeaders(config),
   });
   if (!response.ok) throw new Error(await readError(response));
 }
 
 export async function streamLocalChatCompletion(params: {
-  config: LocalAiConfig;
+  config: PersonalAiProviderConfig;
   messages: LocalChatMessage[];
   tools?: LocalChatToolDefinition[];
   signal?: AbortSignal;
   onReasoning?: (text: string) => void;
   onContent?: (text: string) => void;
 }): Promise<{ message: LocalChatMessage; usage?: AiTokenUsage }> {
-  const response = await fetch(
-    `${normalizeBridgeUrl(params.config.bridgeUrl)}/v1/chat/completions`,
-    {
-      method: 'POST',
-      headers: buildHeaders(params.config),
-      body: JSON.stringify({
-        model: params.config.model,
-        messages: params.messages,
-        temperature: 0.2,
-        stream: true,
-        stream_options: { include_usage: true },
-        chat_template_kwargs: { enable_thinking: false },
-        ...(params.tools?.length ? { tools: params.tools, tool_choice: 'auto' } : {}),
-      }),
-      signal: params.signal,
-    }
-  );
+  const response = await fetch(`${normalizeBaseUrl(params.config.baseUrl)}/chat/completions`, {
+    method: 'POST',
+    headers: buildHeaders(params.config),
+    body: JSON.stringify({
+      model: params.config.model,
+      messages: params.messages,
+      temperature: params.config.temperature,
+      stream: true,
+      stream_options: { include_usage: true },
+      chat_template_kwargs: { enable_thinking: false },
+      ...(params.tools?.length ? { tools: params.tools, tool_choice: 'auto' } : {}),
+    }),
+    signal: params.signal,
+  });
   if (!response.ok) throw new Error(await readError(response));
   if (!response.body) throw new Error('Local model returned an empty stream');
 

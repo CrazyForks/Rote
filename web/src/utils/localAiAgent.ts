@@ -1,4 +1,4 @@
-import type { LocalAiConfig } from '@/state/localAi';
+import type { PersonalAiProviderConfig } from '@/state/localAi';
 import {
   executeClientAgentTool,
   getClientAgentBootstrap,
@@ -34,7 +34,7 @@ function mergeSources(
 }
 
 export async function localAiAgentStream(params: {
-  config: LocalAiConfig;
+  config: PersonalAiProviderConfig;
   payload: AiChatPayload;
   handlers: AiChatStreamHandlers;
   toolsAvailable: boolean;

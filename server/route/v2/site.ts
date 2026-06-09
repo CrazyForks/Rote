@@ -26,13 +26,25 @@ async function getPublicAiStatus() {
     vectorEnabled: false,
     publicExploreVectorEnabled: false,
     available: false,
+    chatAvailable: false,
     vectorAvailable: false,
     vectorInstalled: false,
+    chatProviderId: '',
+    chatModel: '',
+    chatMode: 'disabled',
   };
 
   try {
     const aiConfig = await getStoredAiConfig();
     const vectorStatus = await getPgvectorStatus();
+    const chatBaseUrl = aiConfig.chat?.baseUrl || '';
+    const isLocalChat =
+      /(^https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(chatBaseUrl) ||
+      ['ollama', 'llama-cpp'].includes(aiConfig.chat?.providerId || '');
+    const chatAvailable =
+      aiConfig.enabled === true &&
+      Boolean(aiConfig.chat?.baseUrl?.trim()) &&
+      Boolean(aiConfig.chat?.model?.trim());
 
     return {
       enabled: aiConfig.enabled === true,
@@ -42,8 +54,12 @@ async function getPublicAiStatus() {
         aiConfig.enabled === true &&
         aiConfig.vectorEnabled === true &&
         vectorStatus.installed === true,
+      chatAvailable,
       vectorAvailable: vectorStatus.available === true,
       vectorInstalled: vectorStatus.installed === true,
+      chatProviderId: aiConfig.chat?.providerId || '',
+      chatModel: aiConfig.chat?.model || '',
+      chatMode: aiConfig.enabled ? (isLocalChat ? 'local' : 'site') : 'disabled',
     };
   } catch {
     return fallback;
@@ -204,7 +220,7 @@ siteRouter.get('/status', async (c: HonoContext) => {
         enabled: securityConfig?.passkey?.enabled !== false,
       },
 
-      // AI 配置状态（仅返回脱敏的能力开关，不返回 provider、model 或 API Key）
+      // AI 配置状态（仅返回脱敏的能力开关和模型来源，不返回 API Key）
       ai: aiStatus,
 
       // 时间戳

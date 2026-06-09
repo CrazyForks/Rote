@@ -25,9 +25,30 @@ export type ChatToolDefinition = {
   };
 };
 
+export type ChatToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | {
+      type: 'function';
+      function: {
+        name: string;
+      };
+    };
+
 export type ChatCompletionOptions = {
   temperature?: number;
   enableThinking?: boolean;
+  toolChoice?: ChatToolChoice;
+};
+
+export type ToolCallingProbeResult = {
+  supported: boolean;
+  message: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
+  rawContent?: string;
+  error?: string;
 };
 
 export type ChatCompletionUsage = {
@@ -107,6 +128,46 @@ function buildHeaders(config: AiProviderConfig): Record<string, string> {
   return headers;
 }
 
+function stripHtmlForErrorMessage(text: string): string {
+  return text
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function looksLikeHtml(text: string): boolean {
+  return /^\s*<!doctype html/i.test(text) || /^\s*<html[\s>]/i.test(text);
+}
+
+function buildProviderErrorMessage(response: Response, body: unknown): string {
+  const rawText = typeof body === 'string' ? body : '';
+  const plainText = rawText ? stripHtmlForErrorMessage(rawText) : '';
+  const providerMessage =
+    (body as any)?.error?.message ||
+    (body as any)?.message ||
+    plainText ||
+    `Provider request failed with ${response.status}`;
+
+  if (/Unable to connect|Connection Closed|SGErrorDomain|Policy:/i.test(providerMessage)) {
+    return `Provider request was intercepted or closed by a local proxy. Ensure 127.0.0.1/localhost is in NO_PROXY and Surge bypass rules. ${providerMessage.slice(0, 240)}`;
+  }
+
+  return providerMessage.slice(0, 500);
+}
+
+async function ensureProviderStreamResponse(response: Response): Promise<void> {
+  if (!response.ok) {
+    await readJsonResponse(response);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    throw new Error(buildProviderErrorMessage(response, await response.text()));
+  }
+}
+
 async function readJsonResponse(response: Response): Promise<any> {
   const text = await response.text();
   let body: any = null;
@@ -116,13 +177,13 @@ async function readJsonResponse(response: Response): Promise<any> {
     body = text;
   }
 
+  const contentType = response.headers.get('content-type') || '';
+  if (typeof body === 'string' && (contentType.includes('text/html') || looksLikeHtml(body))) {
+    throw new Error(buildProviderErrorMessage(response, body));
+  }
+
   if (!response.ok) {
-    const message =
-      body?.error?.message ||
-      body?.message ||
-      (typeof body === 'string' && body) ||
-      `Provider request failed with ${response.status}`;
-    throw new Error(message);
+    throw new Error(buildProviderErrorMessage(response, body));
   }
 
   return body;
@@ -145,7 +206,7 @@ function buildChatRequestBody(
     stream?: boolean;
     enableThinking?: boolean;
     tools?: ChatToolDefinition[];
-    toolChoice?: 'auto' | 'none';
+    toolChoice?: ChatToolChoice;
   }
 ): Record<string, unknown> {
   return {
@@ -248,7 +309,7 @@ export async function createChatCompletionWithTools(
       buildChatRequestBody(config, {
         messages,
         tools,
-        toolChoice: 'auto',
+        toolChoice: options.toolChoice ?? 'auto',
         temperature: options.temperature ?? 0.2,
         enableThinking: options.enableThinking,
       })
@@ -300,9 +361,7 @@ export async function createChatCompletionWithToolsStreaming(
     ),
   });
 
-  if (!response.ok) {
-    await readJsonResponse(response);
-  }
+  await ensureProviderStreamResponse(response);
 
   if (!response.body) {
     throw new Error('Chat provider returned an empty tool stream response');
@@ -420,9 +479,7 @@ export async function* createChatCompletionStreamParts(
     ),
   });
 
-  if (!response.ok) {
-    await readJsonResponse(response);
-  }
+  await ensureProviderStreamResponse(response);
 
   if (!response.body) {
     throw new Error('Chat provider returned an empty stream response');
@@ -497,6 +554,94 @@ export async function testChatProvider(config: AiProviderConfig): Promise<void> 
     { role: 'system', content: 'You are a connectivity test endpoint.' },
     { role: 'user', content: 'Reply with OK.' },
   ]);
+}
+
+export async function probeChatProviderToolCalling(
+  config: AiProviderConfig
+): Promise<ToolCallingProbeResult> {
+  const toolName = 'rote_tool_calling_probe';
+
+  try {
+    const response = await createChatCompletionWithTools(
+      config,
+      [
+        {
+          role: 'system',
+          content:
+            'You are testing OpenAI-compatible tool calling. Call the provided tool exactly once. Do not answer with normal text.',
+        },
+        {
+          role: 'user',
+          content: 'Call rote_tool_calling_probe with token set to rote-tool-probe.',
+        },
+      ],
+      [
+        {
+          type: 'function',
+          function: {
+            name: toolName,
+            description: 'Records that the model can emit a tool call.',
+            parameters: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                token: {
+                  type: 'string',
+                  description: 'Must be rote-tool-probe.',
+                },
+              },
+              required: ['token'],
+            },
+          },
+        },
+      ],
+      {
+        temperature: 0,
+        toolChoice: {
+          type: 'function',
+          function: { name: toolName },
+        },
+      }
+    );
+
+    const toolCall = response.message.tool_calls?.find((call) => call.function.name === toolName);
+    if (!toolCall) {
+      return {
+        supported: false,
+        message: 'Chat works, but no tool call was returned by the model.',
+        rawContent: response.message.content || undefined,
+      };
+    }
+
+    let parsedArgs: Record<string, unknown> = {};
+    try {
+      const args = JSON.parse(toolCall.function.arguments || '{}');
+      if (args && typeof args === 'object' && !Array.isArray(args)) {
+        parsedArgs = args;
+      }
+    } catch {
+      return {
+        supported: false,
+        message: 'A tool call was returned, but its arguments were not valid JSON.',
+        toolName,
+        rawContent: response.message.content || undefined,
+      };
+    }
+
+    return {
+      supported: true,
+      message: 'Tool calling detected.',
+      toolName,
+      arguments: parsedArgs,
+      rawContent: response.message.content || undefined,
+    };
+  } catch (error: any) {
+    return {
+      supported: false,
+      message: 'Tool calling probe failed.',
+      error: error?.message || String(error),
+    };
+  }
 }
 
 export async function testEmbeddingProvider(

@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { streamLocalChatCompletion, testLocalAiConnection } from '@/utils/localAi';
 
 const config = {
-  bridgeUrl: 'http://127.0.0.1:11435/',
-  token: 'local-token',
+  enabled: true,
+  baseUrl: 'http://127.0.0.1:11435/v1/',
   model: 'gemma-local',
+  apiKey: 'local-token',
+  temperature: 0.2,
 };
 
 function sseResponse(events: unknown[]) {
@@ -34,7 +36,7 @@ describe('local AI client', () => {
 
     await testLocalAiConnection(config);
 
-    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11435/health', {
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:11435/v1/models', {
       headers: {
         'Content-Type': 'application/json',
         Authorization: 'Bearer local-token',

@@ -4,7 +4,7 @@ import db from '../../drizzle';
 import {
   findArticleById,
   findRoteById,
-  semanticSearch,
+  searchMemoryWithFallback,
   searchRotesProbe,
   sanitizeExcludeIds,
   toPlannerAgentDto,
@@ -83,7 +83,7 @@ function formatRegisteredSources(
   maxSourceChars: number
 ): Array<Record<string, unknown>> {
   const perSourceBudget = Math.max(
-    350,
+    160,
     Math.floor(maxSourceChars / Math.max(registrations.length, 1))
   );
   return registrations.map(({ index, source }) => ({
@@ -195,7 +195,7 @@ async function executeSearchNotes(
     toolName: 'rote_search_notes',
     status: 'retrieving_sources',
   });
-  const sources = plan.sources as SemanticSearchResult[];
+  const sources = (plan.sources as SemanticSearchResult[]).slice(0, ctx.policy.maxSources);
   const planDto = toPlannerAgentDto(plan);
   const registrations = ctx.registerSources(sources);
   const registeredSources = formatRegisteredSources(registrations, ctx.policy.maxSourceChars);
@@ -332,17 +332,19 @@ async function executeFindRelatedNotes(
     status: 'finding_related',
   });
   const { content } = await loadOwnedSource(ctx, sourceType, sourceId);
-  const sources = await semanticSearch({
+  const { sources: foundSources, warnings } = await searchMemoryWithFallback({
     query: content,
     ownerId: ctx.userId,
     sourceTypes: ['rote'],
     limit: normalizeLimit(raw.limit, 8),
     exclude: { sourceType, sourceId },
   });
+  let sources = foundSources;
+  sources = sources.slice(0, ctx.policy.maxSources);
   const registrations = ctx.registerSources(sources);
 
   return {
-    observations: [`Found ${sources.length} related note(s).`],
+    observations: [`Found ${sources.length} related note(s).`, ...warnings],
     sources,
     statePatch: {
       seenSourceIds: buildSeenSourceIds(ctx, sources),
