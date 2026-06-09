@@ -41,10 +41,11 @@ describe('local AI agent', () => {
       payload: { message: 'hello' },
       handlers: { onDelta },
       toolsAvailable: false,
+      enableThinking: false,
     });
 
     expect(onDelta).toHaveBeenCalledWith('private reply');
-    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ enableThinking: true }));
+    expect(mocks.complete).toHaveBeenCalledWith(expect.objectContaining({ enableThinking: false }));
     expect(mocks.bootstrap).not.toHaveBeenCalled();
     expect(mocks.executeTool).not.toHaveBeenCalled();
   });
@@ -92,8 +93,17 @@ describe('local AI agent', () => {
       payload: { message: 'show tags' },
       handlers: { onDelta },
       toolsAvailable: true,
+      enableThinking: true,
     });
 
+    expect(mocks.complete).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ enableThinking: true })
+    );
+    expect(mocks.complete).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ enableThinking: true })
+    );
     expect(mocks.executeTool).toHaveBeenCalledWith(
       expect.objectContaining({ toolName: 'rote_get_tags', arguments: {} })
     );

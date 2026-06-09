@@ -113,7 +113,7 @@ async function streamToolPlannedChatResponse(
   let emittedText = false;
   let lastUsage: any = null;
   for await (const part of createChatCompletionStreamParts(config.chat, messages, {
-    enableThinking: true,
+    enableThinking: body?.enableThinking === true,
   })) {
     if (part.type === 'reasoning') {
       await writeSseEvent(stream, 'thinking', { phase: 'answer', text: part.text });
@@ -391,6 +391,7 @@ aiRouter.post('/agent/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCon
           excludeIds: body?.excludeIds,
           pendingPlan: body?.pendingPlan,
           clarificationAnswer: body?.clarificationAnswer,
+          enableThinking: body?.enableThinking === true,
         },
         config,
         emit: (event) => writeAgentSseEvent(stream, event),

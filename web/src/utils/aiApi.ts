@@ -243,6 +243,7 @@ export type AiChatPayload = {
   history?: { role: 'user' | 'assistant'; content: string }[];
   state?: AiAgentClientState | null;
   debug?: boolean;
+  enableThinking?: boolean;
 };
 
 export const getClientAgentBootstrap = () =>

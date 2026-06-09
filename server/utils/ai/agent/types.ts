@@ -51,6 +51,7 @@ export type RoteAgentRequest = {
   excludeIds?: string[];
   pendingPlan?: PlannerAgentDto | null;
   clarificationAnswer?: string;
+  enableThinking?: boolean;
 };
 
 export type RoteAgentPolicy = {
