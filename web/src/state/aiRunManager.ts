@@ -4,10 +4,13 @@ import {
   aiAgentStream,
   type AiAgentClientState,
   type AiAgentPhase,
+  type AiChatStreamHandlers,
   type AiAgentToolProgressStatus,
   type AiTokenUsage,
   type AiUsagePhase,
 } from '@/utils/aiApi';
+import { localAiAgentStream } from '@/utils/localAiAgent';
+import type { AiModelMode, LocalAiConfig } from '@/state/localAi';
 import {
   aiChatMessagesAtom,
   aiRunStateAtom,
@@ -51,6 +54,9 @@ type StartAiRunParams = {
   pendingPlan: AiMemoryMessage['pendingPlan'] | null;
   ignorePendingPlan?: boolean;
   unavailable: boolean;
+  modelMode: AiModelMode;
+  localConfig: LocalAiConfig;
+  localToolsAvailable: boolean;
   labels: AiRunLabels;
 };
 
@@ -325,179 +331,185 @@ export async function startAiRun(params: StartAiRunParams): Promise<boolean> {
       : getLatestAiAssistantPlan(params.messages);
     const excludeIds = seenSourceIds.size > 0 ? Array.from(seenSourceIds) : undefined;
 
-    await aiAgentStream(
-      {
-        message: question,
-        pendingPlan: activePendingPlan,
-        clarificationAnswer: activePendingPlan ? question : undefined,
+    const payload = {
+      message: question,
+      pendingPlan: activePendingPlan,
+      clarificationAnswer: activePendingPlan ? question : undefined,
+      previousPlan,
+      excludeIds,
+      history: validHistory.length > 0 ? validHistory : undefined,
+      state: {
+        ...agentState,
         previousPlan,
-        excludeIds,
-        history: validHistory.length > 0 ? validHistory : undefined,
-        state: {
-          ...agentState,
-          previousPlan,
-          seenSourceIds: excludeIds,
-          stateVersion: 1,
-        },
+        seenSourceIds: excludeIds,
+        stateVersion: 1,
       },
-      {
-        onRunStarted: (runId) => {
-          if (!isActiveRun(assistantId)) return;
-          mergeAgentState({ conversationId: runId });
-        },
-        onProgress: (phase) => {
-          updateTimeline(assistantId, {
-            id: `progress-${phase}`,
-            type: 'progress',
-            phase,
-            message: params.labels.phase(phase),
-          });
-        },
-        onToolStarted: (toolName) => {
-          updateTimeline(assistantId, {
-            id: `tool-${toolName}`,
-            type: 'tool',
-            toolName,
-            message: params.labels.toolStarted(toolName),
-          });
-        },
-        onToolProgress: (toolName, status) => {
-          updateTimeline(assistantId, {
-            id: `tool-${toolName}`,
-            type: 'tool',
-            toolName,
-            toolStatus: status,
-            message: params.labels.toolStatus(status),
-          });
-        },
-        onToolFinished: (toolName) => {
-          if (toolName === 'rote_search_notes') return;
-          updateTimeline(assistantId, {
-            id: `tool-${toolName}`,
-            type: 'tool',
-            toolName,
-            message: params.labels.toolFinished(toolName),
-            status: 'done',
-          });
-        },
-        onPlan: (plan) => {
-          if (!isActiveRun(assistantId)) return;
-          currentIsMore = false;
-          seenSourceIds.clear();
-          mergeAgentState(
-            { previousPlan: plan, seenSourceIds: [] },
-            { replaceSeenSourceIds: true }
-          );
-          const planTime = performance.now() - start;
-          setMessagesForActiveRun(assistantId, (prev) =>
-            prev.map((message) =>
-              message.id === assistantId
-                ? { ...message, plan, metrics: { ...message.metrics, planTime } }
-                : message
-            )
-          );
-        },
-        onClarification: (clarification) => {
-          if (!isActiveRun(assistantId)) return;
-          receivedClarification = true;
-          const planTime = performance.now() - start;
+    };
+    const handlers = {
+      onRunStarted: (runId) => {
+        if (!isActiveRun(assistantId)) return;
+        mergeAgentState({ conversationId: runId });
+      },
+      onProgress: (phase) => {
+        updateTimeline(assistantId, {
+          id: `progress-${phase}`,
+          type: 'progress',
+          phase,
+          message: params.labels.phase(phase),
+        });
+      },
+      onToolStarted: (toolName) => {
+        updateTimeline(assistantId, {
+          id: `tool-${toolName}`,
+          type: 'tool',
+          toolName,
+          message: params.labels.toolStarted(toolName),
+        });
+      },
+      onToolProgress: (toolName, status) => {
+        updateTimeline(assistantId, {
+          id: `tool-${toolName}`,
+          type: 'tool',
+          toolName,
+          toolStatus: status,
+          message: params.labels.toolStatus(status),
+        });
+      },
+      onToolFinished: (toolName) => {
+        if (toolName === 'rote_search_notes') return;
+        updateTimeline(assistantId, {
+          id: `tool-${toolName}`,
+          type: 'tool',
+          toolName,
+          message: params.labels.toolFinished(toolName),
+          status: 'done',
+        });
+      },
+      onPlan: (plan) => {
+        if (!isActiveRun(assistantId)) return;
+        currentIsMore = false;
+        seenSourceIds.clear();
+        mergeAgentState({ previousPlan: plan, seenSourceIds: [] }, { replaceSeenSourceIds: true });
+        const planTime = performance.now() - start;
+        setMessagesForActiveRun(assistantId, (prev) =>
+          prev.map((message) =>
+            message.id === assistantId
+              ? { ...message, plan, metrics: { ...message.metrics, planTime } }
+              : message
+          )
+        );
+      },
+      onClarification: (clarification) => {
+        if (!isActiveRun(assistantId)) return;
+        receivedClarification = true;
+        const planTime = performance.now() - start;
 
-          setMessagesForActiveRun(assistantId, (prev) =>
-            prev.map((message) =>
-              message.id === assistantId
-                ? settleAiMessageTimeline(
-                    {
-                      ...message,
-                      content: clarification.question,
-                      plan: clarification.pendingPlan ?? undefined,
-                      pendingPlan: clarification.pendingPlan ?? undefined,
-                      clarification: true,
-                      isStreaming: false,
-                      metrics: {
-                        ...message.metrics,
-                        planTime,
-                        totalTime: performance.now() - start,
-                      },
-                    },
-                    'done'
-                  )
-                : message
-            )
-          );
-        },
-        onSources: (sources) => {
-          if (!isActiveRun(assistantId)) return;
-          sources.forEach((source) => seenSourceIds.add(getAiSourceKey(source)));
-          mergeAgentState(
-            {
-              seenSourceIds: Array.from(seenSourceIds),
-            },
-            { replaceSeenSourceIds: !currentIsMore }
-          );
-          const sourcesTime = performance.now() - start;
-          updateTimeline(assistantId, {
-            id: 'tool-rote_search_notes',
-            type: 'tool',
-            toolName: 'rote_search_notes',
-            message: params.labels.sourcesFound(sources.length),
-            status: 'done',
-          });
-          setMessagesForActiveRun(assistantId, (prev) =>
-            prev.map((message) =>
-              message.id === assistantId
-                ? { ...message, sources, metrics: { ...message.metrics, sourcesTime } }
-                : message
-            )
-          );
-        },
-        onThinking: (phase, text) => {
-          setMessagesForActiveRun(assistantId, (prev) =>
-            prev.map((message) =>
-              message.id === assistantId
-                ? {
+        setMessagesForActiveRun(assistantId, (prev) =>
+          prev.map((message) =>
+            message.id === assistantId
+              ? settleAiMessageTimeline(
+                  {
                     ...message,
-                    thinking: {
-                      ...message.thinking,
-                      [phase]: `${message.thinking?.[phase] || ''}${text}`,
+                    content: clarification.question,
+                    plan: clarification.pendingPlan ?? undefined,
+                    pendingPlan: clarification.pendingPlan ?? undefined,
+                    clarification: true,
+                    isStreaming: false,
+                    metrics: {
+                      ...message.metrics,
+                      planTime,
+                      totalTime: performance.now() - start,
                     },
-                  }
+                  },
+                  'done'
+                )
+              : message
+          )
+        );
+      },
+      onSources: (sources) => {
+        if (!isActiveRun(assistantId)) return;
+        sources.forEach((source) => seenSourceIds.add(getAiSourceKey(source)));
+        mergeAgentState(
+          {
+            seenSourceIds: Array.from(seenSourceIds),
+          },
+          { replaceSeenSourceIds: !currentIsMore }
+        );
+        const sourcesTime = performance.now() - start;
+        updateTimeline(assistantId, {
+          id: 'tool-rote_search_notes',
+          type: 'tool',
+          toolName: 'rote_search_notes',
+          message: params.labels.sourcesFound(sources.length),
+          status: 'done',
+        });
+        setMessagesForActiveRun(assistantId, (prev) =>
+          prev.map((message) =>
+            message.id === assistantId
+              ? { ...message, sources, metrics: { ...message.metrics, sourcesTime } }
+              : message
+          )
+        );
+      },
+      onThinking: (phase, text) => {
+        setMessagesForActiveRun(assistantId, (prev) =>
+          prev.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  thinking: {
+                    ...message.thinking,
+                    [phase]: `${message.thinking?.[phase] || ''}${text}`,
+                  },
+                }
+              : message
+          )
+        );
+      },
+      onDelta: (text) => {
+        if (!isActiveRun(assistantId)) return;
+        if (!firstTokenTime) {
+          firstTokenTime = performance.now() - start;
+          setMessagesForActiveRun(assistantId, (prev) =>
+            prev.map((message) =>
+              message.id === assistantId
+                ? { ...message, metrics: { ...message.metrics, firstTokenTime } }
                 : message
             )
           );
-        },
-        onDelta: (text) => {
-          if (!isActiveRun(assistantId)) return;
-          if (!firstTokenTime) {
-            firstTokenTime = performance.now() - start;
-            setMessagesForActiveRun(assistantId, (prev) =>
-              prev.map((message) =>
-                message.id === assistantId
-                  ? { ...message, metrics: { ...message.metrics, firstTokenTime } }
-                  : message
-              )
-            );
-          }
-          queueStreamDelta(assistantId, text);
-        },
-        onUsage: (usage, phase) => {
-          addUsage(assistantId, usage, phase);
-        },
-        onStatePatch: (state) => {
-          if (!isActiveRun(assistantId)) return;
-          const nextState = currentIsMore
-            ? state
-            : {
-                ...state,
-                seenSourceIds: Array.from(seenSourceIds),
-              };
-          mergeAgentState(nextState, { replaceSeenSourceIds: !currentIsMore });
-          if (currentIsMore && state.seenSourceIds?.length) {
-            state.seenSourceIds.forEach((id) => seenSourceIds.add(id));
-          }
-        },
+        }
+        queueStreamDelta(assistantId, text);
       },
-      controller.signal
-    );
+      onUsage: (usage, phase) => {
+        addUsage(assistantId, usage, phase);
+      },
+      onStatePatch: (state) => {
+        if (!isActiveRun(assistantId)) return;
+        const nextState = currentIsMore
+          ? state
+          : {
+              ...state,
+              seenSourceIds: Array.from(seenSourceIds),
+            };
+        mergeAgentState(nextState, { replaceSeenSourceIds: !currentIsMore });
+        if (currentIsMore && state.seenSourceIds?.length) {
+          state.seenSourceIds.forEach((id) => seenSourceIds.add(id));
+        }
+      },
+    } satisfies AiChatStreamHandlers;
+
+    if (params.modelMode === 'local') {
+      await localAiAgentStream({
+        config: params.localConfig,
+        payload,
+        handlers,
+        toolsAvailable: params.localToolsAvailable,
+        signal: controller.signal,
+      });
+    } else {
+      await aiAgentStream(payload, handlers, controller.signal);
+    }
 
     if (!receivedClarification) {
       await drainStreamContent(assistantId);

@@ -11,7 +11,9 @@ import {
   getCurrentAiAssistantSources,
   sanitizeAiChatMessages,
 } from '@/state/aiChat';
+import { aiModelModeAtom, localAiConfigAtom } from '@/state/localAi';
 import { getAiStatus, type AiAgentPhase, type AiAgentToolProgressStatus } from '@/utils/aiApi';
+import { testLocalAiConnection } from '@/utils/localAi';
 import {
   clearAiRun,
   isAiRunActive,
@@ -26,7 +28,10 @@ import {
   ArrowUpRight,
   BrainCircuit,
   BrainCog,
+  Cloud,
+  Cpu,
   Loader,
+  PlugZap,
   Send,
   Sparkles,
   Trash2,
@@ -41,14 +46,18 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 function AiMemoryPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const [messages, setMessages] = useAtom(aiChatMessagesAtom);
   const [runState] = useAtom(aiRunStateAtom);
+  const [modelMode, setModelMode] = useAtom(aiModelModeAtom);
+  const [localConfig, setLocalConfig] = useAtom(localAiConfigAtom);
   const [input, setInput] = useState('');
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
+  const [isTestingLocal, setIsTestingLocal] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const isSending = runState.isSending;
 
@@ -82,15 +91,30 @@ function AiMemoryPage() {
       : null;
   }, [messages]);
 
-  const unavailable =
+  const siteUnavailable =
     !isStatusLoading && (!status?.enabled || !status.vectorEnabled || !status.available);
+  const localConfigured =
+    localConfig.bridgeUrl.trim().length > 0 &&
+    localConfig.model.trim().length > 0 &&
+    localConfig.token.trim().length > 0;
+  const unavailable = modelMode === 'site' ? siteUnavailable : !localConfigured;
   const unavailableText =
-    status?.eligible === false ? t('status.unverified') : t('status.unavailable');
+    modelMode === 'local'
+      ? t('model.localIncomplete')
+      : status?.eligible === false
+        ? t('status.unverified')
+        : t('status.unavailable');
   const canSend = !isSending && !unavailable && input.trim().length > 0;
   const memoryStats = status?.memoryStats;
   const indexedRoteCount = memoryStats?.indexedRoteCount ?? 0;
   const roteCount = memoryStats?.roteCount ?? 0;
   const vectorProgress = roteCount > 0 ? Math.round((indexedRoteCount / roteCount) * 100) : 0;
+
+  useEffect(() => {
+    if (!isStatusLoading && siteUnavailable && modelMode === 'site') {
+      setModelMode('local');
+    }
+  }, [isStatusLoading, modelMode, setModelMode, siteUnavailable]);
 
   function getAgentPhaseLabel(phase: AiAgentPhase) {
     return t(`timeline.phases.${phase}`);
@@ -169,6 +193,9 @@ function AiMemoryPage() {
       pendingPlan: options.ignorePendingPlan ? null : pendingPlan,
       ignorePendingPlan: options.ignorePendingPlan,
       unavailable,
+      modelMode,
+      localConfig,
+      localToolsAvailable: status?.available === true,
       labels: {
         phase: getAgentPhaseLabel,
         toolStarted: getToolStartedLabel,
@@ -203,9 +230,15 @@ function AiMemoryPage() {
   const StatusBlock = () => {
     const statusText = isStatusLoading
       ? t('status.checking')
-      : status?.available
-        ? t('status.ready')
-        : unavailableText;
+      : modelMode === 'local'
+        ? localConfigured
+          ? status?.available
+            ? t('model.toolsReady')
+            : t('model.chatOnly')
+          : t('model.localIncomplete')
+        : status?.available
+          ? t('status.ready')
+          : unavailableText;
 
     return (
       <div className="px-4 py-2">
@@ -253,8 +286,96 @@ function AiMemoryPage() {
     );
   };
 
+  const LocalModelBlock = () => (
+    <div className="space-y-3 px-4 py-3">
+      <div>
+        <div className="text-md">{t('model.title')}</div>
+        <div className="text-info text-xs font-light">{t('model.localDescription')}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant={modelMode === 'site' ? 'default' : 'outline'}
+          disabled={isSending || siteUnavailable}
+          onClick={() => setModelMode('site')}
+        >
+          <Cloud className="size-4" />
+          {t('model.site')}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={modelMode === 'local' ? 'default' : 'outline'}
+          disabled={isSending}
+          onClick={() => setModelMode('local')}
+        >
+          <Cpu className="size-4" />
+          {t('model.local')}
+        </Button>
+      </div>
+      {modelMode === 'local' && (
+        <div className="space-y-2">
+          <Input
+            value={localConfig.bridgeUrl}
+            placeholder={t('model.bridgeUrl')}
+            disabled={isSending}
+            onChange={(event) =>
+              setLocalConfig((current) => ({ ...current, bridgeUrl: event.target.value }))
+            }
+          />
+          <Input
+            value={localConfig.model}
+            placeholder={t('model.modelName')}
+            disabled={isSending}
+            onChange={(event) =>
+              setLocalConfig((current) => ({ ...current, model: event.target.value }))
+            }
+          />
+          <Input
+            type="password"
+            value={localConfig.token}
+            placeholder={t('model.token')}
+            disabled={isSending}
+            onChange={(event) =>
+              setLocalConfig((current) => ({ ...current, token: event.target.value }))
+            }
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-full"
+            disabled={isTestingLocal || !localConfigured}
+            onClick={async () => {
+              setIsTestingLocal(true);
+              try {
+                await testLocalAiConnection(localConfig);
+                toast.success(t('model.connected'));
+              } catch (error: any) {
+                toast.error(
+                  t('model.connectionFailed', { error: error?.message || 'Unknown error' })
+                );
+              } finally {
+                setIsTestingLocal(false);
+              }
+            }}
+          >
+            {isTestingLocal ? (
+              <Loader className="size-4 animate-spin" />
+            ) : (
+              <PlugZap className="size-4" />
+            )}
+            {isTestingLocal ? t('model.testing') : t('model.test')}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
   const SideBar = () => (
     <div className="flex w-full flex-col divide-y">
+      <LocalModelBlock />
       <StatusBlock />
       <div className="divide-border/50 flex flex-col divide-y">
         <div className="px-4 py-2">

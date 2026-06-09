@@ -8,7 +8,14 @@ import {
   testChatProvider,
   testEmbeddingProvider,
 } from '../../utils/ai/client';
+import { executeClientRoteTool } from '../../utils/ai/agent/clientRuntime';
+import {
+  buildFinalAnswerInstruction,
+  buildRoteAgentSystemPrompt,
+} from '../../utils/ai/agent/prompt';
 import { runRoteAgentStream, type RoteAgentStreamEvent } from '../../utils/ai/agent/runtime';
+import { getNativeRoteTools } from '../../utils/ai/agent/tools';
+import { DEFAULT_AGENT_POLICY } from '../../utils/ai/agent/types';
 import { AI_PROVIDER_PRESETS, resolveIncomingAiConfig } from '../../utils/ai/providers';
 import {
   type AiSourceType,
@@ -35,6 +42,7 @@ import { bodyTypeCheck, createResponse } from '../../utils/main';
 const aiRouter = new Hono<{ Variables: HonoVariables }>();
 const VALID_AI_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
 const AI_VERIFICATION_REQUIRED_MESSAGE = 'AI features require a verified account';
+const CLIENT_AGENT_UNAVAILABLE_MESSAGE = 'Rote AI tools are not available for this account';
 
 async function writeSseEvent(
   stream: Parameters<Parameters<typeof streamSSE>[1]>[0],
@@ -74,6 +82,16 @@ function toClientSource(source: any) {
       createdAt: metadata.createdAt,
     },
   };
+}
+
+async function getClientAgentConfig(user: User) {
+  const [config, vectorStatus, eligible] = await Promise.all([
+    getStoredAiConfig(),
+    getPgvectorStatus(),
+    isAiEligibleUser(user.id),
+  ]);
+  const available = eligible && config.enabled && config.vectorEnabled && vectorStatus.installed;
+  return { available, config };
 }
 
 async function writeAgentSseEvent(
@@ -201,6 +219,69 @@ aiRouter.post('/test', authenticateJWT, requireAdmin, bodyTypeCheck, async (c: H
 
   return c.json(createResponse(null, 'Invalid test target'), 400);
 });
+
+aiRouter.get('/client-agent/bootstrap', authenticateJWT, async (c: HonoContext) => {
+  const user = c.get('user') as User;
+  const { available } = await getClientAgentConfig(user);
+  if (!available) {
+    return c.json(createResponse(null, CLIENT_AGENT_UNAVAILABLE_MESSAGE), 403);
+  }
+
+  const requestedMode = c.req.query('mode');
+  const mode = requestedMode === 'review' || requestedMode === 'organize' ? requestedMode : 'chat';
+  return c.json(
+    createResponse({
+      systemPrompt: buildRoteAgentSystemPrompt(mode),
+      finalAnswerInstruction: buildFinalAnswerInstruction(),
+      tools: getNativeRoteTools().map((tool) => tool.definition),
+      policy: {
+        maxIterations: DEFAULT_AGENT_POLICY.maxIterations,
+        maxToolCalls: DEFAULT_AGENT_POLICY.maxToolCalls,
+        maxSources: DEFAULT_AGENT_POLICY.maxSources,
+      },
+    }),
+    200
+  );
+});
+
+aiRouter.post(
+  '/client-agent/tools/execute',
+  authenticateJWT,
+  bodyTypeCheck,
+  async (c: HonoContext) => {
+    const user = c.get('user') as User;
+    const { available, config } = await getClientAgentConfig(user);
+    if (!available) {
+      return c.json(createResponse(null, CLIENT_AGENT_UNAVAILABLE_MESSAGE), 403);
+    }
+
+    const body = await c.req.json();
+    const result = await executeClientRoteTool({
+      userId: user.id,
+      config,
+      toolName: body?.toolName,
+      arguments: body?.arguments,
+      request: body?.request,
+      state: body?.state,
+      sourceKeys: body?.sourceKeys,
+    });
+
+    return c.json(
+      createResponse({
+        observations: result.observations,
+        displaySummary: result.displaySummary,
+        modelContent: result.modelContent,
+        sources: Array.isArray(result.sources) ? result.sources.map(toClientSource) : [],
+        plan: result.plan,
+        statePatch: result.statePatch,
+        state: result.state,
+        sourceKeys: result.sourceKeys,
+        clarification: result.clarification,
+      }),
+      200
+    );
+  }
+);
 
 aiRouter.get('/vector/status', authenticateJWT, requireAdmin, async (c: HonoContext) => {
   const status = await getPgvectorStatus();

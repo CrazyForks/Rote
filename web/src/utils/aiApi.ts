@@ -169,6 +169,36 @@ export type AiChatStreamHandlers = {
   onError?: (message: string) => void;
 };
 
+export type ClientAgentBootstrap = {
+  systemPrompt: string;
+  finalAnswerInstruction: string;
+  tools: Array<{
+    type: 'function';
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
+  policy: {
+    maxIterations: number;
+    maxToolCalls: number;
+    maxSources: number;
+  };
+};
+
+export type ClientAgentToolResult = {
+  observations: string[];
+  displaySummary?: unknown;
+  modelContent: string;
+  sources: AiSemanticResult[];
+  plan?: PlannerAgentDto;
+  statePatch?: Partial<AiAgentClientState>;
+  state: AiAgentClientState;
+  sourceKeys: string[];
+  clarification?: AiClarification;
+};
+
 export const getAiStatus = () => get('/ai/status').then((res) => res.data as AiStatus);
 
 export type AiChatPayload = {
@@ -186,6 +216,18 @@ export type AiChatPayload = {
 
 export const aiChat = (payload: AiChatPayload) =>
   post('/ai/chat', payload).then((res) => res.data as AiChatResponse);
+
+export const getClientAgentBootstrap = () =>
+  get('/ai/client-agent/bootstrap').then((res) => res.data as ClientAgentBootstrap);
+
+export const executeClientAgentTool = (payload: {
+  toolName: string;
+  arguments: unknown;
+  request: AiChatPayload;
+  state?: AiAgentClientState | null;
+  sourceKeys?: string[];
+}) =>
+  post('/ai/client-agent/tools/execute', payload).then((res) => res.data as ClientAgentToolResult);
 
 async function createAiStreamRequest(
   endpoint: '/ai/chat/stream' | '/ai/agent/stream',
