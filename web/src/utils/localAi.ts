@@ -26,11 +26,33 @@ export type LocalChatToolDefinition = {
   };
 };
 
-function normalizeBaseUrl(value: string) {
+export function normalizePersonalAiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
 }
 
-function buildHeaders(config: PersonalAiProviderConfig) {
+export function getPersonalAiBaseUrlCandidates(config: PersonalAiProviderConfig): string[] {
+  const normalized = normalizePersonalAiBaseUrl(config.baseUrl);
+  if (!normalized) return [];
+
+  const candidates = [normalized];
+  if (!isLocalPersonalAiProvider(config)) return candidates;
+
+  try {
+    const url = new URL(normalized);
+    const alternate =
+      url.hostname === '127.0.0.1' ? 'localhost' : url.hostname === 'localhost' ? '127.0.0.1' : '';
+    if (alternate) {
+      url.hostname = alternate;
+      candidates.push(url.toString().replace(/\/+$/, ''));
+    }
+  } catch {
+    return candidates;
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+export function buildPersonalAiHeaders(config: PersonalAiProviderConfig) {
   return {
     'Content-Type': 'application/json',
     ...(config.apiKey.trim() ? { Authorization: `Bearer ${config.apiKey.trim()}` } : {}),
@@ -74,11 +96,26 @@ function parseToolCallArguments(value: unknown): string {
   return '{}';
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
 export async function testLocalAiConnection(config: PersonalAiProviderConfig): Promise<void> {
-  const response = await fetch(`${normalizeBaseUrl(config.baseUrl)}/models`, {
-    headers: buildHeaders(config),
-  });
-  if (!response.ok) throw new Error(await readError(response));
+  let lastError: unknown;
+  for (const baseUrl of getPersonalAiBaseUrlCandidates(config)) {
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: buildPersonalAiHeaders(config),
+      });
+      if (response.ok) return;
+      lastError = new Error(await readError(response));
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`personal_ai_request_failed`);
 }
 
 export async function streamLocalChatCompletion(params: {
@@ -90,23 +127,42 @@ export async function streamLocalChatCompletion(params: {
   onReasoning?: (text: string) => void;
   onContent?: (text: string) => void;
 }): Promise<{ message: LocalChatMessage; usage?: AiTokenUsage }> {
-  const response = await fetch(`${normalizeBaseUrl(params.config.baseUrl)}/chat/completions`, {
-    method: 'POST',
-    headers: buildHeaders(params.config),
-    body: JSON.stringify({
-      model: params.config.model,
-      messages: params.messages,
-      temperature: params.config.temperature,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...(isLocalPersonalAiProvider(params.config)
-        ? { chat_template_kwargs: { enable_thinking: params.enableThinking === true } }
-        : {}),
-      ...(params.tools?.length ? { tools: params.tools, tool_choice: 'auto' } : {}),
-    }),
-    signal: params.signal,
+  const requestBody = JSON.stringify({
+    model: params.config.model,
+    messages: params.messages,
+    temperature: params.config.temperature,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...(isLocalPersonalAiProvider(params.config)
+      ? { chat_template_kwargs: { enable_thinking: params.enableThinking === true } }
+      : {}),
+    ...(params.tools?.length ? { tools: params.tools, tool_choice: 'auto' } : {}),
   });
-  if (!response.ok) throw new Error(await readError(response));
+  let response: Response | null = null;
+  let lastError: unknown;
+
+  for (const baseUrl of getPersonalAiBaseUrlCandidates(params.config)) {
+    try {
+      const candidate = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: buildPersonalAiHeaders(params.config),
+        body: requestBody,
+        signal: params.signal,
+      });
+      if (!candidate.ok) {
+        throw new Error(await readError(candidate));
+      }
+      response = candidate;
+      break;
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      lastError = error;
+    }
+  }
+
+  if (!response) {
+    throw lastError instanceof Error ? lastError : new Error(`personal_ai_request_failed`);
+  }
   if (!response.body) throw new Error(`Personal model returned an empty stream`);
 
   const reader = response.body.getReader();

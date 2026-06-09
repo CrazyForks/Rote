@@ -68,4 +68,43 @@ describe(`personal AI provider test`, () => {
 
     await expect(testPersonalAiProvider(remoteConfig)).rejects.toThrow(`personal_ai_cors_blocked`);
   });
+
+  it(`uses local fallback candidates for browser provider tests`, async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError(`Failed to fetch`))
+      .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { content: 'OK' } }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    function: {
+                      name: 'rote_tool_calling_probe',
+                      arguments: `{"token":"rote-tool-probe"}`,
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await testPersonalAiProvider({
+      ...remoteConfig,
+      baseUrl: 'http://127.0.0.1:11435/v1',
+      apiKey: '',
+    });
+
+    expect(result.data.success).toBe(true);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:11435/v1/chat/completions',
+      'http://localhost:11435/v1/chat/completions',
+      'http://127.0.0.1:11435/v1/chat/completions',
+    ]);
+  });
 });

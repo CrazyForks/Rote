@@ -4,32 +4,7 @@ import type {
   AiProviderTestResult,
   AiToolCallingProbeResult,
 } from '@/utils/aiApi';
-
-function normalizeBrowserBaseUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, '');
-}
-
-function getBrowserBaseUrlCandidates(config: PersonalAiProviderConfig): string[] {
-  const normalized = normalizeBrowserBaseUrl(config.baseUrl);
-  if (!normalized) return [];
-
-  const candidates = [normalized];
-  if (!isLocalPersonalAiProvider(config)) return candidates;
-
-  try {
-    const url = new URL(normalized);
-    const alternate =
-      url.hostname === '127.0.0.1' ? 'localhost' : url.hostname === 'localhost' ? '127.0.0.1' : '';
-    if (alternate) {
-      url.hostname = alternate;
-      candidates.push(url.toString().replace(/\/+$/, ''));
-    }
-  } catch {
-    // Let fetch surface the malformed URL error.
-  }
-
-  return Array.from(new Set(candidates));
-}
+import { buildPersonalAiHeaders, getPersonalAiBaseUrlCandidates } from '@/utils/localAi';
 
 async function readBrowserResponseError(response: Response): Promise<string> {
   const text = await response.text();
@@ -65,14 +40,11 @@ async function fetchBrowserChatCompletion(
 ): Promise<Response> {
   let lastError: unknown;
 
-  for (const baseUrl of getBrowserBaseUrlCandidates(config)) {
+  for (const baseUrl of getPersonalAiBaseUrlCandidates(config)) {
     try {
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.apiKey.trim() ? { Authorization: `Bearer ${config.apiKey.trim()}` } : {}),
-        },
+        headers: buildPersonalAiHeaders(config),
         body: JSON.stringify(payload),
         signal,
       });

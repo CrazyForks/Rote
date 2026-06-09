@@ -123,7 +123,19 @@ export async function localAiAgentStream(params: {
     messages.push({ ...response.message, tool_calls: validCalls });
 
     for (const call of validCalls) {
-      if (toolCallCount >= bootstrap.policy.maxToolCalls) break;
+      if (toolCallCount >= bootstrap.policy.maxToolCalls) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          content: JSON.stringify({
+            status: 'skipped',
+            reason: 'tool_budget_exceeded',
+            toolName: call.function.name,
+          }),
+        });
+        params.handlers.onToolFinished?.(call.function.name);
+        continue;
+      }
       toolCallCount += 1;
       const args = parseArguments(call);
       params.handlers.onToolStarted?.(call.function.name, args);

@@ -44,6 +44,21 @@ describe('local AI client', () => {
     });
   });
 
+  it('falls back between loopback hostnames for local connection tests', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('proxy blocked', { status: 502 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await testLocalAiConnection(config);
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:11435/v1/models',
+      'http://localhost:11435/v1/models',
+    ]);
+  });
+
   it('parses streamed content, tool calls, and usage', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([
@@ -95,6 +110,25 @@ describe('local AI client', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
       chat_template_kwargs: { enable_thinking: false },
     });
+  });
+
+  it('uses the same local fallback candidates for streamed chat', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(sseResponse([{ choices: [{ delta: { content: 'OK' } }] }]));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await streamLocalChatCompletion({
+      config,
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
+
+    expect(result.message.content).toBe('OK');
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:11435/v1/chat/completions',
+      'http://localhost:11435/v1/chat/completions',
+    ]);
   });
 
   it(`can enable model thinking for local browser calls`, async () => {

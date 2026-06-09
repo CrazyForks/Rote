@@ -109,4 +109,76 @@ describe('local AI agent', () => {
     );
     expect(onDelta).toHaveBeenCalledWith('final answer');
   });
+
+  it('adds tool messages for calls skipped after the tool budget is exhausted', async () => {
+    mocks.bootstrap.mockResolvedValue({
+      systemPrompt: 'Rote agent',
+      finalAnswerInstruction: 'Answer now',
+      tools: [
+        {
+          type: 'function',
+          function: { name: 'rote_get_tags', description: 'tags', parameters: {} },
+        },
+        {
+          type: 'function',
+          function: { name: 'rote_search_notes', description: 'search', parameters: {} },
+        },
+      ],
+      policy: { maxIterations: 2, maxToolCalls: 1, maxSources: 20 },
+    });
+    mocks.complete
+      .mockResolvedValueOnce({
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'rote_get_tags', arguments: '{}' },
+            },
+            {
+              id: 'call_2',
+              type: 'function',
+              function: { name: 'rote_search_notes', arguments: '{"query":"x"}' },
+            },
+          ],
+        },
+      })
+      .mockImplementationOnce(
+        async (params: {
+          messages: Array<{ role: string; tool_call_id?: string; content?: string | null }>;
+        }) => {
+          const { messages } = params;
+          const skippedToolMessage = messages.find(
+            (message) => message.role === 'tool' && message.tool_call_id === 'call_2'
+          );
+          expect(JSON.parse(skippedToolMessage?.content || '{}')).toMatchObject({
+            status: 'skipped',
+            reason: 'tool_budget_exceeded',
+            toolName: 'rote_search_notes',
+          });
+          return {
+            message: { role: 'assistant', content: 'final answer', tool_calls: [] },
+          };
+        }
+      );
+    mocks.executeTool.mockResolvedValue({
+      observations: ['Loaded tags'],
+      modelContent: '{"tags":[]}',
+      sources: [],
+      state: { stateVersion: 1, seenSourceIds: [] },
+      sourceKeys: [],
+    });
+
+    await localAiAgentStream({
+      config,
+      payload: { message: 'show tags and notes' },
+      handlers: {},
+      toolsAvailable: true,
+      enableThinking: false,
+    });
+
+    expect(mocks.executeTool).toHaveBeenCalledTimes(1);
+  });
 });
