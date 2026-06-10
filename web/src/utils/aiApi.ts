@@ -9,6 +9,11 @@ export interface AiStatus {
   publicExploreVectorEnabled: boolean;
   eligible: boolean;
   available: boolean;
+  memoryAvailable?: boolean;
+  chatAvailable?: boolean;
+  chatProviderId?: string;
+  chatModel?: string;
+  chatMode?: 'disabled' | 'site' | 'local';
   memoryStats?: {
     roteCount: number;
     indexedRoteCount: number;
@@ -35,12 +40,30 @@ export interface AiSemanticResult {
   };
 }
 
-export interface AiChatResponse {
-  answer: string;
-  sources: AiSemanticResult[];
-  plan?: PlannerAgentDto;
-  clarification?: AiClarification;
+export type AiToolCallingProbeResult = {
+  supported: boolean;
+  message: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
+  rawContent?: string;
+  error?: string;
+};
+
+export interface AiProviderTestResult {
+  success: boolean;
+  eligible?: boolean;
+  chatAvailable?: boolean;
+  vectorAvailable?: boolean;
+  model?: string;
+  latencyMs?: number;
+  sample?: string;
+  usage?: AiTokenUsage;
+  toolCalling?: AiToolCallingProbeResult;
 }
+
+export type AiProviderTestProgressStep = 'site' | 'personal_remote' | 'local_chat' | 'tool_calling';
+
+export type AiProviderTestProgressHandler = (step: AiProviderTestProgressStep) => void;
 
 export type LifecycleScope = 'active' | 'archived' | 'all' | 'unspecified';
 export type TaskStatusScope = 'open' | 'closed' | 'all' | 'unspecified';
@@ -169,7 +192,45 @@ export type AiChatStreamHandlers = {
   onError?: (message: string) => void;
 };
 
+export type ClientAgentBootstrap = {
+  systemPrompt: string;
+  finalAnswerInstruction: string;
+  tools: Array<{
+    type: 'function';
+    function: {
+      name: string;
+      description: string;
+      parameters: Record<string, unknown>;
+    };
+  }>;
+  policy: {
+    maxIterations: number;
+    maxToolCalls: number;
+    maxSources: number;
+  };
+};
+
+export type ClientAgentToolResult = {
+  observations: string[];
+  displaySummary?: unknown;
+  modelContent: string;
+  sources: AiSemanticResult[];
+  plan?: PlannerAgentDto;
+  statePatch?: Partial<AiAgentClientState>;
+  state: AiAgentClientState;
+  sourceKeys: string[];
+  clarification?: AiClarification;
+};
+
 export const getAiStatus = () => get('/ai/status').then((res) => res.data as AiStatus);
+
+export const testSiteAiProvider = (onProgress?: AiProviderTestProgressHandler) => {
+  onProgress?.('site');
+  return post('/ai/site/test', {}).then((res) => ({
+    data: res.data as AiProviderTestResult,
+    message: res.message,
+  }));
+};
 
 export type AiChatPayload = {
   message: string;
@@ -182,10 +243,20 @@ export type AiChatPayload = {
   history?: { role: 'user' | 'assistant'; content: string }[];
   state?: AiAgentClientState | null;
   debug?: boolean;
+  enableThinking?: boolean;
 };
 
-export const aiChat = (payload: AiChatPayload) =>
-  post('/ai/chat', payload).then((res) => res.data as AiChatResponse);
+export const getClientAgentBootstrap = () =>
+  get('/ai/client-agent/bootstrap').then((res) => res.data as ClientAgentBootstrap);
+
+export const executeClientAgentTool = (payload: {
+  toolName: string;
+  arguments: unknown;
+  request: AiChatPayload;
+  state?: AiAgentClientState | null;
+  sourceKeys?: string[];
+}) =>
+  post('/ai/client-agent/tools/execute', payload).then((res) => res.data as ClientAgentToolResult);
 
 async function createAiStreamRequest(
   endpoint: '/ai/chat/stream' | '/ai/agent/stream',
@@ -219,7 +290,16 @@ async function readResponseError(response: Response): Promise<string> {
     const body = JSON.parse(text);
     return body?.message || body?.error?.message || `Request failed with ${response.status}`;
   } catch {
-    return text || `Request failed with ${response.status}`;
+    const plainText = text
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (/Connection Closed|SGErrorDomain|Policy:/i.test(plainText)) {
+      return `Local AI request was intercepted or closed by a proxy client. Add 127.0.0.1/localhost to the proxy bypass list, or try switching Base URL between http://127.0.0.1:8080/v1 and http://localhost:8080/v1. ${plainText.slice(0, 240)}`;
+    }
+    return plainText || text || `Request failed with ${response.status}`;
   }
 }
 

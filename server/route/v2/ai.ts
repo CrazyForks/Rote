@@ -1,36 +1,30 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import type { User } from '../../drizzle/schema';
-import { authenticateJWT, requireAdmin } from '../../middleware/jwtAuth';
+import { type User } from '../../drizzle/schema';
+import { authenticateJWT } from '../../middleware/jwtAuth';
 import type { HonoContext, HonoVariables } from '../../types/hono';
 import {
   createChatCompletionStreamParts,
+  probeChatProviderToolCalling,
   testChatProvider,
-  testEmbeddingProvider,
 } from '../../utils/ai/client';
 import { runRoteAgentStream, type RoteAgentStreamEvent } from '../../utils/ai/agent/runtime';
-import { AI_PROVIDER_PRESETS, resolveIncomingAiConfig } from '../../utils/ai/providers';
 import {
   type AiSourceType,
   chatWithRoteContext,
-  clearAllEmbeddings,
-  enqueueBackfillEmbeddingJobs,
-  ensurePgvectorReady,
   findArticleById,
   findRoteById,
-  getEmbeddingJobStats,
   getOwnerAiMemoryStats,
   getPgvectorStatus,
   getStoredAiConfig,
   isAiEligibleUser,
   prepareRoteChatContext,
-  processPendingEmbeddingJobs,
-  retryFailedEmbeddingJobs,
-  semanticSearch,
-  setIndexingPaused,
+  searchMemoryWithFallback,
   logAiTokenUsage,
 } from '../../utils/dbMethods';
 import { bodyTypeCheck, createResponse } from '../../utils/main';
+import { registerAdminAiRoutes } from './aiAdmin';
+import { registerClientAgentRoutes } from './aiClientAgent';
 
 const aiRouter = new Hono<{ Variables: HonoVariables }>();
 const VALID_AI_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
@@ -119,7 +113,7 @@ async function streamToolPlannedChatResponse(
   let emittedText = false;
   let lastUsage: any = null;
   for await (const part of createChatCompletionStreamParts(config.chat, messages, {
-    enableThinking: true,
+    enableThinking: body?.enableThinking === true,
   })) {
     if (part.type === 'reasoning') {
       await writeSseEvent(stream, 'thinking', { phase: 'answer', text: part.text });
@@ -154,9 +148,7 @@ async function streamToolPlannedChatResponse(
   await writeSseEvent(stream, 'done', {});
 }
 
-aiRouter.get('/providers', authenticateJWT, requireAdmin, (c: HonoContext) =>
-  c.json(createResponse(AI_PROVIDER_PRESETS), 200)
-);
+registerAdminAiRoutes(aiRouter);
 
 aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
   const user = c.get('user') as User;
@@ -164,96 +156,105 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
   const vectorStatus = await getPgvectorStatus();
   const eligible = await isAiEligibleUser(user.id);
   const memoryStats = await getOwnerAiMemoryStats(user.id);
+  const chatBaseUrl = config.chat?.baseUrl || '';
+  const isLocalChat =
+    /(^https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\])(:|\/|$)/i.test(chatBaseUrl) ||
+    ['ollama', 'llama-cpp'].includes(config.chat?.providerId || '');
+  const chatAvailable =
+    config.enabled === true &&
+    Boolean(config.chat?.baseUrl?.trim()) &&
+    Boolean(config.chat?.model?.trim());
+  const memoryAvailable =
+    eligible &&
+    config.enabled === true &&
+    config.vectorEnabled === true &&
+    vectorStatus.installed === true;
+  const available = memoryAvailable && chatAvailable;
   return c.json(
     createResponse({
       enabled: config.enabled,
       vectorEnabled: config.vectorEnabled,
       publicExploreVectorEnabled: config.publicExploreVectorEnabled,
       eligible,
-      available: eligible && config.enabled && config.vectorEnabled && vectorStatus.installed,
+      chatAvailable,
+      chatProviderId: config.chat?.providerId || '',
+      chatModel: config.chat?.model || '',
+      chatMode: config.enabled ? (isLocalChat ? 'local' : 'site') : 'disabled',
+      available,
+      memoryAvailable,
       memoryStats,
     }),
     200
   );
 });
 
-aiRouter.post('/test', authenticateJWT, requireAdmin, bodyTypeCheck, async (c: HonoContext) => {
-  const body = await c.req.json();
-  const target = body?.target as 'chat' | 'embedding';
-  const storedConfig = await getStoredAiConfig();
-  const config = body?.config ? resolveIncomingAiConfig(body.config, storedConfig) : storedConfig;
+registerClientAgentRoutes(aiRouter);
 
-  if (target === 'chat') {
-    await testChatProvider(config.chat);
-    return c.json(createResponse({ success: true }, 'Chat provider test successful'), 200);
-  }
+aiRouter.post('/site/test', authenticateJWT, async (c: HonoContext) => {
+  const user = c.get('user') as User;
+  const config = await getStoredAiConfig();
+  const vectorStatus = await getPgvectorStatus();
+  const eligible = await isAiEligibleUser(user.id);
+  const chatAvailable =
+    config.enabled === true &&
+    Boolean(config.chat?.baseUrl?.trim()) &&
+    Boolean(config.chat?.model?.trim());
+  const vectorAvailable = config.vectorEnabled === true && vectorStatus.installed === true;
 
-  if (target === 'embedding') {
-    const result = await testEmbeddingProvider(config.embedding, config.embedding.dimensions);
+  if (!eligible) {
     return c.json(
       createResponse(
-        { success: true, dimensions: result.dimensions },
-        'Embedding provider test successful'
+        {
+          success: false,
+          eligible,
+          chatAvailable,
+          vectorAvailable,
+          model: config.chat?.model || '',
+        },
+        AI_VERIFICATION_REQUIRED_MESSAGE
       ),
-      200
+      403
     );
   }
 
-  return c.json(createResponse(null, 'Invalid test target'), 400);
-});
+  if (!chatAvailable) {
+    return c.json(
+      createResponse(
+        {
+          success: false,
+          eligible,
+          chatAvailable,
+          vectorAvailable,
+          model: config.chat?.model || '',
+        },
+        'Site AI chat model is not configured'
+      ),
+      400
+    );
+  }
 
-aiRouter.get('/vector/status', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const status = await getPgvectorStatus();
-  return c.json(createResponse(status), 200);
-});
-
-aiRouter.post('/vector/enable', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const status = await ensurePgvectorReady();
-  return c.json(createResponse(status, 'pgvector is ready'), 200);
-});
-
-aiRouter.get('/index/stats', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const stats = await getEmbeddingJobStats();
-  return c.json(createResponse(stats), 200);
-});
-
-aiRouter.post('/index/backfill', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const result = await enqueueBackfillEmbeddingJobs();
-  const stats = await getEmbeddingJobStats();
-  return c.json(createResponse({ ...result, stats }, 'Backfill jobs queued'), 200);
-});
-
-aiRouter.post('/index/process', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const result = await processPendingEmbeddingJobs();
-  const stats = await getEmbeddingJobStats();
-  return c.json(createResponse({ ...result, stats }, 'Embedding jobs processed'), 200);
-});
-
-aiRouter.post('/index/retry-failed', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const result = await retryFailedEmbeddingJobs();
-  const stats = await getEmbeddingJobStats();
-  return c.json(createResponse({ ...result, stats }, 'Failed jobs requeued'), 200);
-});
-
-aiRouter.post('/index/pause', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const config = await setIndexingPaused(true);
+  const startedAt = Date.now();
+  await testChatProvider(config.chat);
+  const toolCalling = await probeChatProviderToolCalling(config.chat);
   return c.json(
-    createResponse({ paused: config.indexing.paused === true }, 'Indexing paused'),
+    createResponse(
+      {
+        success: true,
+        eligible,
+        chatAvailable,
+        vectorAvailable,
+        model: config.chat?.model || '',
+        latencyMs: Date.now() - startedAt,
+        toolCalling,
+      },
+      !toolCalling.supported
+        ? 'Site chat model works, but tool calling was not detected'
+        : vectorAvailable
+          ? 'Site AI test successful'
+          : 'Site chat model works, but AI memory vector index is not ready'
+    ),
     200
   );
-});
-
-aiRouter.post('/index/resume', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  const config = await setIndexingPaused(false);
-  return c.json(
-    createResponse({ paused: config.indexing.paused === true }, 'Indexing resumed'),
-    200
-  );
-});
-
-aiRouter.post('/index/clear', authenticateJWT, requireAdmin, async (c: HonoContext) => {
-  await clearAllEmbeddings();
-  return c.json(createResponse(null, 'Vector index cleared'), 200);
 });
 
 aiRouter.post('/search', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
@@ -269,7 +270,7 @@ aiRouter.post('/search', authenticateJWT, bodyTypeCheck, async (c: HonoContext) 
     return c.json(createResponse(null, 'Query is required'), 400);
   }
 
-  const results = await semanticSearch({
+  const { sources: results } = await searchMemoryWithFallback({
     query,
     ownerId: body?.scope === 'public' ? undefined : user.id,
     scope: body?.scope === 'public' ? 'public' : 'mine',
@@ -321,7 +322,7 @@ aiRouter.post('/related-notes', authenticateJWT, bodyTypeCheck, async (c: HonoCo
       )
     : ['rote', 'article'];
 
-  const results = await semanticSearch({
+  const { sources: results } = await searchMemoryWithFallback({
     query,
     ownerId: user.id,
     sourceTypes,
@@ -390,6 +391,7 @@ aiRouter.post('/agent/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCon
           excludeIds: body?.excludeIds,
           pendingPlan: body?.pendingPlan,
           clarificationAnswer: body?.clarificationAnswer,
+          enableThinking: body?.enableThinking === true,
         },
         config,
         emit: (event) => writeAgentSseEvent(stream, event),

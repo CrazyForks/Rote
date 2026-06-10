@@ -7,7 +7,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useSiteStatus } from '@/hooks/useSiteStatus';
 import { loadProfileAtom, profileAtom, useAuthState } from '@/state/profile';
 import { tagsAtom } from '@/state/tags';
 import { authService } from '@/utils/auth';
@@ -89,7 +88,6 @@ function LayoutDashboard() {
   const { authReady, tokenValid } = useAuthState();
   const profile = useAtomValue(profileAtom);
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
-  const { data: siteStatus } = useSiteStatus();
 
   useEffect(() => {
     if (authReady && tokenValid && !profile) {
@@ -101,7 +99,7 @@ function LayoutDashboard() {
 
   // 根据用户角色动态生成 tabs
   const userTabs = useMemo(() => {
-    const canShowAi = siteStatus?.ai?.available === true && profile?.emailVerified === true;
+    const canShowAi = tokenValid === true;
     const tabs = canShowAi ? [...baseTabs] : baseTabs.filter((tab) => tab.name !== 'aiMemory');
     // 如果是管理员或超级管理员，添加管理员 tab
     if (profile && (profile.role === 'admin' || profile.role === 'super_admin')) {
@@ -112,7 +110,7 @@ function LayoutDashboard() {
       name: 'logout',
     });
     return tabs;
-  }, [profile, siteStatus?.ai?.available]);
+  }, [profile, tokenValid]);
 
   async function logOutFn() {
     setIsLogoutDialogOpen(false);

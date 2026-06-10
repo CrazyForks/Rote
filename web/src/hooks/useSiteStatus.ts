@@ -67,6 +67,8 @@ interface SiteStatusData {
     vectorEnabled: boolean;
     publicExploreVectorEnabled: boolean;
     available: boolean;
+    chatAvailable: boolean;
+    memoryAvailable: boolean;
     vectorAvailable: boolean;
     vectorInstalled: boolean;
   };

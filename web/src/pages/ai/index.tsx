@@ -11,7 +11,8 @@ import {
   getCurrentAiAssistantSources,
   sanitizeAiChatMessages,
 } from '@/state/aiChat';
-import { getAiStatus, type AiAgentPhase, type AiAgentToolProgressStatus } from '@/utils/aiApi';
+import { getAiStatus } from '@/utils/aiApi';
+import { personalAiSettingsAtom, withPersonalAiDefaults } from '@/state/localAi';
 import {
   clearAiRun,
   isAiRunActive,
@@ -24,10 +25,12 @@ import {
   ArrowDown,
   ArrowDownLeft,
   ArrowUpRight,
+  Brain,
   BrainCircuit,
   BrainCog,
   Loader,
   Send,
+  Settings2,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -41,16 +44,33 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  buttonType,
+  ghostButtonVariant,
+  iconButtonSize,
+  statusBlockClasses,
+} from './components/aiPageClasses';
+import { PersonalAiDialog } from './components/PersonalAiDialog';
+import { useAiRunLabels } from './hooks/useAiRunLabels';
+import { usePersonalAiTesting } from './hooks/usePersonalAiTesting';
 
 function AiMemoryPage() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.aiMemory' });
   const [messages, setMessages] = useAtom(aiChatMessagesAtom);
   const [runState] = useAtom(aiRunStateAtom);
+  const [personalAiSettings, setPersonalAiSettings] = useAtom(personalAiSettingsAtom);
+  const personalAi = useMemo(
+    () => withPersonalAiDefaults(personalAiSettings),
+    [personalAiSettings]
+  );
   const [input, setInput] = useState('');
+  const [enableThinking, setEnableThinking] = useState(false);
   const [isPromptsExpanded, setIsPromptsExpanded] = useState(false);
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
+  const [isPersonalAiDialogOpen, setIsPersonalAiDialogOpen] = useState(false);
   const messageEndRef = useRef<HTMLDivElement>(null);
   const isSending = runState.isSending;
+  const aiRunLabels = useAiRunLabels();
 
   const {
     data: status,
@@ -82,33 +102,34 @@ function AiMemoryPage() {
       : null;
   }, [messages]);
 
+  const isPersonalModelMode = personalAi.mode === 'personal';
+  const activePersonalConfig = personalAi.personal;
+  const personalAiReady =
+    activePersonalConfig.enabled &&
+    Boolean(activePersonalConfig.baseUrl.trim()) &&
+    Boolean(activePersonalConfig.model.trim());
   const unavailable =
-    !isStatusLoading && (!status?.enabled || !status.vectorEnabled || !status.available);
-  const unavailableText =
-    status?.eligible === false ? t('status.unverified') : t('status.unavailable');
+    !isStatusLoading &&
+    (isPersonalModelMode
+      ? !personalAiReady
+      : !status?.enabled || !status.vectorEnabled || !status.available);
+  const unavailableText = isPersonalModelMode
+    ? t('personal.personalUnavailable')
+    : status?.eligible === false
+      ? t('status.unverified')
+      : status?.chatAvailable
+        ? t('status.memoryUnavailable')
+        : t('status.unavailable');
   const canSend = !isSending && !unavailable && input.trim().length > 0;
   const memoryStats = status?.memoryStats;
   const indexedRoteCount = memoryStats?.indexedRoteCount ?? 0;
   const roteCount = memoryStats?.roteCount ?? 0;
   const vectorProgress = roteCount > 0 ? Math.round((indexedRoteCount / roteCount) * 100) : 0;
-
-  function getAgentPhaseLabel(phase: AiAgentPhase) {
-    return t(`timeline.phases.${phase}`);
-  }
-
-  function getToolStartedLabel(toolName: string) {
-    return t(`timeline.tools.${toolName}`, { defaultValue: toolName });
-  }
-
-  function getToolStatusLabel(status: AiAgentToolProgressStatus) {
-    return t(`timeline.toolStatus.${status}`);
-  }
-
-  function getToolFinishedLabel(toolName: string) {
-    return t(`timeline.toolDone.${toolName}`, {
-      defaultValue: t('timeline.toolDone.default'),
-    });
-  }
+  const { personalAiTestState, getModeProbe, testPersonalAiMode } = usePersonalAiTesting({
+    status,
+    isStatusLoading,
+    personalAi,
+  });
 
   const scrollToMessageEnd = useCallback((behavior: ScrollBehavior = 'smooth') => {
     messageEndRef.current?.scrollIntoView({ block: 'end', behavior });
@@ -169,16 +190,11 @@ function AiMemoryPage() {
       pendingPlan: options.ignorePendingPlan ? null : pendingPlan,
       ignorePendingPlan: options.ignorePendingPlan,
       unavailable,
-      labels: {
-        phase: getAgentPhaseLabel,
-        toolStarted: getToolStartedLabel,
-        toolStatus: getToolStatusLabel,
-        toolFinished: getToolFinishedLabel,
-        sourcesFound: (count) => t('timeline.sourcesFound', { count }),
-        askFailed: t('messages.askFailed'),
-        fallbackNoAnswerWithSources: t('messages.fallbackNoAnswerWithSources'),
-        fallbackNoAnswerNoSources: t('messages.fallbackNoAnswerNoSources'),
-      },
+      mode: personalAi.mode,
+      personalConfig: isPersonalModelMode ? activePersonalConfig : undefined,
+      toolsAvailable: isPersonalModelMode ? status?.memoryAvailable === true : undefined,
+      enableThinking,
+      labels: aiRunLabels,
     });
     if (!started) {
       setInput(question);
@@ -201,32 +217,68 @@ function AiMemoryPage() {
   }
 
   const StatusBlock = () => {
-    const statusText = isStatusLoading
-      ? t('status.checking')
-      : status?.available
-        ? t('status.ready')
-        : unavailableText;
+    const statusText = (() => {
+      if (isStatusLoading) return t('status.checking');
+      if (isPersonalModelMode) return personalAiReady ? t('status.ready') : unavailableText;
+      if (status?.available) return t('status.ready');
+      if (status?.eligible === false) return unavailableText;
+      return status?.chatAvailable ? t('status.chatReady') : unavailableText;
+    })();
+    const providerText =
+      personalAi.mode === 'personal'
+        ? t('model.personal')
+        : status?.chatMode === 'local'
+          ? t('model.local')
+          : status?.chatMode === 'site'
+            ? t('model.site')
+            : t('model.disabled');
+    const modelText = isPersonalModelMode
+      ? activePersonalConfig.model || t('model.noModel')
+      : status?.chatModel || t('model.noModel');
 
     return (
       <div className="px-4 py-2">
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="text-md min-w-0 truncate">{t('status.title')}</div>
-          <div className="text-info flex min-w-0 items-center justify-end gap-2 text-right text-xs font-light">
-            {isStatusLoading || isStatusValidating ? (
-              <Loader className="size-3 shrink-0 animate-spin" />
-            ) : null}
-            {!isStatusLoading && !status?.available ? (
-              <button
-                type="button"
-                className="hover:text-foreground min-w-0 cursor-pointer truncate text-left duration-200 hover:opacity-60"
-                onClick={() => refreshStatus()}
-              >
-                {statusText}
-              </button>
-            ) : (
-              <span className="min-w-0 truncate">{statusText}</span>
-            )}
+          <div className={statusBlockClasses.actions}>
+            <div className={statusBlockClasses.statusText}>
+              {isStatusLoading || isStatusValidating ? (
+                <Loader className={statusBlockClasses.statusLoader} />
+              ) : null}
+              {!isStatusLoading && !status?.available ? (
+                <button
+                  type={buttonType}
+                  className={statusBlockClasses.statusRefresh}
+                  onClick={() => refreshStatus()}
+                >
+                  {statusText}
+                </button>
+              ) : (
+                <span className={statusBlockClasses.truncate}>{statusText}</span>
+              )}
+            </div>
+            <Button
+              type={buttonType}
+              variant={ghostButtonVariant}
+              size={iconButtonSize}
+              className={statusBlockClasses.settingsButton}
+              onClick={() => setIsPersonalAiDialogOpen(true)}
+              aria-label={t('personal.openSettings')}
+              title={t('personal.openSettings')}
+            >
+              <Settings2 className={statusBlockClasses.settingsIcon} />
+            </Button>
           </div>
+        </div>
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-sm">
+          <span className="text-info min-w-0 truncate font-light">{t('model.source')}</span>
+          <span className="shrink-0 truncate text-right text-xs font-medium">{providerText}</span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center justify-between gap-3 text-sm">
+          <span className="text-info min-w-0 truncate font-light">{t('model.model')}</span>
+          <span className="shrink-0 truncate text-right font-mono text-xs">
+            {isStatusLoading ? '-' : modelText}
+          </span>
         </div>
         <div className="mt-2 flex min-w-0 items-center justify-between gap-3 text-sm">
           <span className="text-info min-w-0 truncate font-light">
@@ -247,7 +299,9 @@ function AiMemoryPage() {
           </span>
         </div>
         <div className="text-info mt-2 line-clamp-3 text-xs font-light">
-          {t('privacy.description')}
+          {personalAi.mode === 'personal'
+            ? t('personal.personalPrivacy')
+            : t('privacy.description')}
         </div>
       </div>
     );
@@ -319,6 +373,16 @@ function AiMemoryPage() {
       hideSidebarToggleButton={true}
       hideFloatBtnsOnMobile={true}
     >
+      <PersonalAiDialog
+        open={isPersonalAiDialogOpen}
+        onOpenChange={setIsPersonalAiDialogOpen}
+        personalAi={personalAi}
+        personalAiTestState={personalAiTestState}
+        isStatusLoading={isStatusLoading}
+        getModeProbe={getModeProbe}
+        setPersonalAiSettings={setPersonalAiSettings}
+        onTestMode={testPersonalAiMode}
+      />
       <NavBar title={t('title')} icon={<BrainCircuit className="size-5" />}>
         <div className="ml-auto flex items-center gap-2">
           {isSending && <Loader className="size-4 animate-spin" />}
@@ -417,6 +481,20 @@ function AiMemoryPage() {
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleInputKeyDown}
             />
+            <Button
+              type={buttonType}
+              size={iconButtonSize}
+              variant={ghostButtonVariant}
+              className={statusBlockClasses.settingsButton}
+              style={{ opacity: enableThinking ? 1 : 0.45 }}
+              disabled={isSending || unavailable}
+              aria-label={enableThinking ? t('thinkingToggle.on') : t('thinkingToggle.off')}
+              aria-pressed={enableThinking}
+              title={enableThinking ? t('thinkingToggle.on') : t('thinkingToggle.off')}
+              onClick={() => setEnableThinking((value) => !value)}
+            >
+              <Brain className={statusBlockClasses.settingsIcon} />
+            </Button>
             <Button
               type="submit"
               size="sm"

@@ -16,11 +16,13 @@ import {
   Activity,
   Brain,
   ChevronDown,
+  Copy,
   Database,
   Pause,
   Play,
   RefreshCw,
   SlidersHorizontal,
+  Terminal,
   Trash2,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -105,6 +107,9 @@ function MetricBlock({ label, value }: { label: string; value: string | number }
   );
 }
 
+const LOCAL_LLAMA_COMMAND =
+  'llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096';
+
 export default function AIConfigTab({
   aiConfig,
   setAiConfig,
@@ -167,6 +172,15 @@ export default function AIConfigTab({
     });
   };
 
+  const copyLocalCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(LOCAL_LLAMA_COMMAND);
+      toast.success(t('ai.localGuide.copySuccess'));
+    } catch {
+      toast.error(t('ai.localGuide.copyFailed'));
+    }
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
@@ -227,6 +241,7 @@ export default function AIConfigTab({
     const provider = target === 'chat' ? config.chat : config.embedding;
     const capability = target === 'chat' ? 'chat' : 'embedding';
     const availableProviders = providers.filter((item) => item.capabilities.includes(capability));
+    const showLlamaCppTip = target === 'chat' && provider?.providerId === 'llama-cpp';
 
     return (
       <section className="rounded-md border p-4">
@@ -255,14 +270,14 @@ export default function AIConfigTab({
         </div>
 
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="min-w-0 space-y-2">
               <Label>{t(`ai.${target}Provider`)}</Label>
               <Select
                 value={provider?.providerId || 'custom'}
                 onValueChange={(value) => applyPreset(target, value)}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -274,9 +289,10 @@ export default function AIConfigTab({
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <Label>{t('ai.model')}</Label>
               <Input
+                className="min-w-0"
                 value={provider?.model || ''}
                 onChange={(event) => updateProvider(target, { model: event.target.value })}
               />
@@ -289,6 +305,30 @@ export default function AIConfigTab({
               onChange={(event) => updateProvider(target, { baseUrl: event.target.value })}
             />
           </div>
+          {showLlamaCppTip && (
+            <div className="bg-muted/20 rounded-md border p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Terminal className="size-4" />
+                {t('ai.localGuide.title')}
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">{t('ai.localGuide.description')}</p>
+              <div className="mt-3 flex min-w-0 items-center gap-2">
+                <code className="bg-background min-w-0 flex-1 overflow-x-auto rounded-md border px-3 py-2 text-xs">
+                  {LOCAL_LLAMA_COMMAND}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={copyLocalCommand}
+                  aria-label={t('ai.localGuide.copy')}
+                  title={t('ai.localGuide.copy')}
+                >
+                  <Copy className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <Label>{t('ai.apiKey')}</Label>

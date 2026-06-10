@@ -26,6 +26,8 @@ async function getPublicAiStatus() {
     vectorEnabled: false,
     publicExploreVectorEnabled: false,
     available: false,
+    chatAvailable: false,
+    memoryAvailable: false,
     vectorAvailable: false,
     vectorInstalled: false,
   };
@@ -33,15 +35,23 @@ async function getPublicAiStatus() {
   try {
     const aiConfig = await getStoredAiConfig();
     const vectorStatus = await getPgvectorStatus();
+    const chatAvailable =
+      aiConfig.enabled === true &&
+      Boolean(aiConfig.chat?.baseUrl?.trim()) &&
+      Boolean(aiConfig.chat?.model?.trim());
+    const memoryAvailable =
+      aiConfig.enabled === true &&
+      aiConfig.vectorEnabled === true &&
+      vectorStatus.installed === true;
+    const available = chatAvailable && memoryAvailable;
 
     return {
       enabled: aiConfig.enabled === true,
       vectorEnabled: aiConfig.vectorEnabled === true,
       publicExploreVectorEnabled: aiConfig.publicExploreVectorEnabled === true,
-      available:
-        aiConfig.enabled === true &&
-        aiConfig.vectorEnabled === true &&
-        vectorStatus.installed === true,
+      available,
+      chatAvailable,
+      memoryAvailable,
       vectorAvailable: vectorStatus.available === true,
       vectorInstalled: vectorStatus.installed === true,
     };

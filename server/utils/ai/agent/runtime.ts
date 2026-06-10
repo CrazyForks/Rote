@@ -162,7 +162,7 @@ async function streamFinalAnswer(ctx: RoteAgentContext, messages: ChatMessage[])
   let lastUsage: any = null;
 
   for await (const part of createChatCompletionStreamParts(ctx.config.chat, messages, {
-    enableThinking: true,
+    enableThinking: ctx.request.enableThinking === true,
   })) {
     if (part.type === 'reasoning') {
       await ctx.emit({ type: 'thinking', phase: 'answer', text: part.text });
@@ -229,7 +229,7 @@ export async function runRoteAgentStream(params: {
           tools.map((tool) => tool.definition),
           {
             temperature: 0.2,
-            enableThinking: true,
+            enableThinking: request.enableThinking === true,
             onReasoning: (text) =>
               params.emit({
                 type: 'thinking',

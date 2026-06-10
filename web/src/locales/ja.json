@@ -169,6 +169,16 @@
         "login": "ログイン",
         "logout": "ログアウト"
       },
+      "aiStatus": {
+        "site": "サイト / クラウド AI",
+        "local": "ローカル大規模モデル",
+        "personal": "自分のモデル/API",
+        "personalLocal": "自分のローカルモデル",
+        "personalRemote": "自分のリモート API",
+        "disabled": "AI 無効",
+        "noModel": "モデル未設定",
+        "configure": "AI を設定"
+      },
       "messages": {
         "loggingOut": "ログアウト中...",
         "logoutSuccess": "ログアウト成功",
@@ -446,6 +456,22 @@
       "send": "送信",
       "clear": "チャットをクリア",
       "backToBottom": "一番下へ戻る",
+      "model": {
+        "title": "モデルソース",
+        "site": "サイトモデル",
+        "local": "ローカルモデル",
+        "localDescription": "ローカルモデルのリクエストは、この端末とローカルブリッジ間だけで送信されます。",
+        "bridgeUrl": "ローカルブリッジ URL",
+        "modelName": "モデル名",
+        "token": "ローカルブリッジ Token",
+        "test": "ローカル接続をテスト",
+        "testing": "テスト中...",
+        "connected": "ローカルモデルに接続しました",
+        "connectionFailed": "ローカルモデル接続に失敗しました：{{error}}",
+        "toolsReady": "Rote ツール付きローカルモデル",
+        "chatOnly": "ローカルモデル、通常チャットのみ",
+        "localIncomplete": "ローカルモデル接続を設定してください"
+      },
       "saveAsArticle": "記事として保存",
       "saved": "保存済み",
       "savedArticleTitle": "AI メモリー回答",
@@ -463,6 +489,10 @@
         "exportFailed": "エクスポートに失敗しました"
       },
       "inputPlaceholder": "Rote に質問...",
+      "thinkingToggle": {
+        "on": "思考はオンです",
+        "off": "思考はオフです"
+      },
       "empty": {
         "title": "Rote に聞く",
         "desc": "ノートと記事から文脈を探します。"
@@ -482,9 +512,82 @@
       "status": {
         "title": "AI 状態",
         "checking": "確認中...",
-        "ready": "準備完了",
+        "ready": "設定準備完了",
+        "chatReady": "チャットモデル設定済み",
         "unverified": "メール確認後に AI を利用できます",
-        "unavailable": "AI またはベクトル索引を利用できません"
+        "unavailable": "AI またはベクトル索引を利用できません",
+        "memoryUnavailable": "チャットモデルは設定済みですが、AI メモリーにはベクトル索引が必要です"
+      },
+      "model": {
+        "source": "モデルソース",
+        "model": "現在のモデル",
+        "site": "サイト / クラウド AI",
+        "local": "ローカル大規模モデル",
+        "personal": "自分のモデル/API",
+        "personalLocal": "自分のローカルモデル",
+        "personalRemote": "自分のリモート API",
+        "disabled": "無効",
+        "noModel": "未設定"
+      },
+      "personal": {
+        "title": "個人 AI 設定",
+        "description": "AI メモリーの回答に、サイトモデルまたは自分の OpenAI 互換モデル/API を選択します。",
+        "openSettings": "個人 AI 設定",
+        "siteMode": "サイト AI",
+        "siteModeDesc": "管理者が設定したモデルとベクトル索引を使います。",
+        "personalMode": "自分のモデル/API",
+        "personalModeDesc": "ローカル llama.cpp/Ollama またはリモート API の OpenAI 互換 Base URL を 1 つ設定します。",
+        "enablePersonal": "自分のモデル/API を有効化",
+        "enablePersonalDesc": "Base URL、モデル名、API Key はこのブラウザだけに保存されます。",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "http://127.0.0.1:8080/v1 または https://api.openai.com/v1",
+        "model": "モデル",
+        "modelPlaceholder": "gemma-4-12b-it または gpt-4.1-mini",
+        "apiKey": "API Key（任意）",
+        "personalUnavailable": "個人 AI 設定でモデル/API を有効化し、入力してください",
+        "personalPrivacy": "個人モードでは、このブラウザが設定されたモデル/API を直接呼び出します。Base URL、モデル名、Key は Rote バックエンドへ送信されず、サーバー設定にも保存されません。",
+        "personalProxyNote": "API テストと AI 回答はいずれも現在のブラウザからこの Base URL へ直接接続します。Rote バックエンドはモデルが tool call を要求した場合にのみメモリーツールを実行します。クラウド API がブラウザ CORS を許可しない場合は、ローカルブリッジを使用してください。",
+        "probeChecking": "確認中",
+        "probeReady": "設定準備完了",
+        "probePartial": "一部利用可能",
+        "probeConfigured": "設定済み",
+        "probeMissing": "未準備",
+        "siteProbeChecking": "サイト AI の状態を読み取っています。",
+        "siteProbeReady": "サイト AI 設定、アカウント資格、AI メモリー索引が準備完了です。",
+        "siteProbePartial": "サイトのチャットモデルは設定済みですが、アカウント資格または AI メモリー索引が未準備です。",
+        "siteProbeMissing": "サイト AI はまだ利用できません。個人モデルを使うか管理者に連絡してください。",
+        "personalProbeReady": "モデル/API は有効です。API をテストできます。回答時はこの設定を使用します。",
+        "personalProbeDisabled": "モデル/API 設定は入力済みなので API をテストできます。回答に使うにはスイッチをオンにしてください。",
+        "personalProbeMissing": "Base URL とモデル名を入力してください。",
+        "testButton": "API をテスト",
+        "testToastStarting": "API テストを準備しています...",
+        "testToastSite": "サイト AI API と tool calling をテストしています...",
+        "testToastLocalChat": "このブラウザからチャット API を直接テストしています...",
+        "testToastRemoteProxy": "このブラウザからリモート API と tool calling を直接テストしています...",
+        "testToastToolCalling": "tool calling を検出しています...",
+        "testSuccess": "API テスト成功",
+        "testPartial": "チャット API は利用できますが、tool calling は検出されませんでした",
+        "testFailed": "API テスト失敗",
+        "testLatency": "API テスト成功、所要時間 {{ms}} ms",
+        "toolCallingSupported": "tool calling を検出しました。完全なメモリーツールを利用できます。",
+        "toolCallingUnsupported": "tool calling は検出されませんでした：{{reason}}",
+        "toolCallingUnknown": "モデルが tool call を返しませんでした",
+        "toolCallingReasons": {
+          "noCall": "モデルが tool call を返しませんでした",
+          "invalidArguments": "モデルは tool call を返しましたが、引数が有効な JSON ではありません",
+          "probeFailed": "tool calling の検出に失敗しました"
+        },
+        "errors": {
+          "corsBlocked": "このブラウザからリモート API に直接アクセスできません。クラウド API が CORS を許可していない可能性があります。ローカルブリッジを使用してください。",
+          "proxyIntercepted": "ローカル AI リクエストがプロキシクライアントにより遮断または終了されました。127.0.0.1/localhost をプロキシ除外リストへ追加するか、Base URL の 127.0.0.1 と localhost を切り替えてください。",
+          "requestFailed": "個人モデル/API リクエストに失敗しました",
+          "invalidResponse": "個人モデル/API が無効なチャットレスポンスを返しました"
+        },
+        "siteCapability": "サイト Agent は検索計画のため、tool calling 対応モデルが最適です。深い思考は必須ではなく、reasoning 出力がなくても動作します。",
+        "personalCapability": "個人モデル/API モードも同じ Rote Agent を使います。メモリーツールを完全に使うには OpenAI 互換 tool calling 対応モデルが必要です。深い思考/reasoning は任意の表示出力です。",
+        "startGuideTitle": "llama.cpp 起動例",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideDesc": "起動後、ローカルサーバーが OpenAI 互換の /v1/chat/completions をサポートし、ブラウザからアクセスできることを確認してください。"
       },
       "memoryStats": {
         "title": "メモリー概要",
@@ -538,7 +641,10 @@
         "fallback": "フォールバック：{{reason}}",
         "providerError": "モデルのツール呼び出しに失敗",
         "toolError": "検索ツールに失敗",
-        "warnings": "警告：{{warnings}}"
+        "warnings": "警告：{{warnings}}",
+        "warningLabels": {
+          "semanticSearchTextFallback": "セマンティック検索が利用できないため、テキスト検索を使用しました"
+        }
       },
       "timeline": {
         "title": "進捗",
@@ -1078,7 +1184,27 @@
         "failedJobs": "失敗ジョブ",
         "basicSwitches": "基本スイッチ",
         "modelProviders": "モデルプロバイダー",
-        "advancedSettings": "高度なインデックスとメンテナンス"
+        "advancedSettings": "高度なインデックスとメンテナンス",
+        "runtime": {
+          "title": "モデルソース",
+          "description": "Rote がサイト / クラウドモデルを使うか、このマシンで動く OpenAI 互換ローカルモデルに接続するかを選択します。",
+          "useSite": "サイト AI を使う",
+          "useLocal": "ローカルモデルを使う",
+          "currentMode": "現在のモード",
+          "currentModel": "現在のモデル",
+          "currentBaseUrl": "現在の Base URL",
+          "siteMode": "サイト / クラウド AI",
+          "localMode": "ローカル大規模モデル",
+          "customMode": "カスタム互換 API"
+        },
+        "localGuide": {
+          "title": "ローカル llama.cpp を起動",
+          "description": "ターミナルで OpenAI 互換サーバーを起動してから、このページを保存してください。Rote は Base URL 経由で接続します。",
+          "copy": "コマンドをコピー",
+          "copySuccess": "コマンドをコピーしました",
+          "copyFailed": "コピーに失敗しました",
+          "embeddingNote": "AI メモリーには埋め込みモデルも必要です。pgvector HNSW インデックスは 2000 次元以下が必要です。ローカル埋め込みがそれ以上の次元を返す場合は、ベクトルメモリーをオフにするか、低次元の埋め込みモデルを使用してください。"
+        }
       },
       "users": {
         "title": "ユーザー管理",

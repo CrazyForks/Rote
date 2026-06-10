@@ -118,6 +118,7 @@ AI 记忆是可选能力，默认关闭。它已经可以在 `develop` 镜像中
 - [API 文档](doc/userguide/API-ENDPOINTS.md) - API 接口使用指南
 - [API Key 指南](doc/userguide/API-KEY-GUIDE.md) - 如何使用 API Key
 - [AI Vector 迁移指南](doc/userguide/AI-VECTOR-MIGRATION.zh.md) - 旧版线上数据库升级到 AI 记忆与 pgvector 的操作说明
+- [用户本地 AI 指南](userguide/LOCAL-AI.zh.md) - 在用户自己的电脑运行 Gemma，模型请求不经过 Rote 服务端
 
 ### 视频教程（B 站）
 
