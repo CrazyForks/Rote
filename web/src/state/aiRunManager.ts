@@ -1,6 +1,6 @@
 import { getDefaultStore } from 'jotai';
 import { toast } from 'sonner';
-import { aiAgentStream, type AiAgentClientState } from '@/utils/aiApi';
+import { aiAgentStream, aiChatStream, type AiAgentClientState } from '@/utils/aiApi';
 import type { PersonalAiProviderConfig, PersonalAiMode } from '@/state/localAi';
 import { localAiAgentStream } from '@/utils/localAiAgent';
 import {
@@ -299,8 +299,10 @@ export async function startAiRun(params: StartAiRunParams): Promise<boolean> {
         enableThinking: params.enableThinking === true,
         signal: controller.signal,
       });
-    } else {
+    } else if (params.toolsAvailable === true) {
       await aiAgentStream(agentPayload, agentHandlers, controller.signal);
+    } else {
+      await aiChatStream(agentPayload, agentHandlers, controller.signal);
     }
 
     if (!progress.receivedClarification) {

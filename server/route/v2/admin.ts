@@ -245,7 +245,6 @@ adminRouter.post('/setup', async (c: HonoContext) => {
     if (
       setupData.ui.allowRegistration === undefined ||
       setupData.ui.allowUploadFile === undefined ||
-      setupData.ui.allowUserVideoUpload === undefined ||
       !setupData.ui.defaultUserRole ||
       setupData.ui.apiRateLimit === undefined ||
       setupData.ui.maxVideoUploadSizeMB === undefined

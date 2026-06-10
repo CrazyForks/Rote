@@ -1,12 +1,19 @@
 import { randomUUID } from 'crypto';
 import { Hono } from 'hono';
+import {
+  extractCompressedUuid,
+  extractOriginalUploadUuid,
+  extractPosterUuid,
+  getUploadExtension,
+} from '../../attachments/uploadKeys';
+import { getAttachmentUploadPolicy } from '../../attachments/uploadPolicy';
 import type { User } from '../../drizzle/schema';
 import { requireStorageConfig } from '../../middleware/configCheck';
 import { authenticateJWT } from '../../middleware/jwtAuth';
-import type { StorageConfig, UiConfig } from '../../types/config';
+import type { StorageConfig } from '../../types/config';
 import type { HonoContext, HonoVariables } from '../../types/hono';
 import type { UploadResult } from '../../types/main';
-import { getConfig, getGlobalConfig } from '../../utils/config';
+import { getGlobalConfig } from '../../utils/config';
 import {
   deleteAttachment,
   deleteAttachments,
@@ -15,7 +22,6 @@ import {
   upsertAttachmentsByOriginalKey,
 } from '../../utils/dbMethods';
 import {
-  DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB,
   MAX_BATCH_SIZE,
   MAX_FILES,
   getMediaKindFromContentType,
@@ -32,48 +38,6 @@ import { AttachmentPresignZod } from '../../utils/zod';
 
 // 附件相关路由
 const attachmentsRouter = new Hono<{ Variables: HonoVariables }>();
-
-const canAlwaysUploadVideo = (role?: string | null) => role === 'admin' || role === 'super_admin';
-
-const canRegularUserUploadVideo = (uiConfig?: UiConfig | null) =>
-  uiConfig?.allowUserVideoUpload === true;
-
-const getMaxVideoUploadSizeMB = (uiConfig?: UiConfig | null) => {
-  const configured = uiConfig?.maxVideoUploadSizeMB;
-  return typeof configured === 'number' && configured > 0
-    ? configured
-    : DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB;
-};
-
-const getExt = (filename?: string, contentType?: string) => {
-  if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
-  if (!contentType) return '';
-
-  const map: Record<string, string> = {
-    'image/jpeg': '.jpg',
-    'image/jpg': '.jpg',
-    'image/png': '.png',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-    'image/heic': '.heic',
-    'image/heif': '.heif',
-    'image/avif': '.avif',
-    'image/svg+xml': '.svg',
-    'video/mp4': '.mp4',
-    'video/webm': '.webm',
-    'video/quicktime': '.mov',
-  };
-
-  return map[contentType] || '';
-};
-
-const extractOriginalUploadUuid = (key?: string) =>
-  key?.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/)?.[1] ?? null;
-
-const extractCompressedUuid = (key?: string) =>
-  key?.match(/\/compressed\/([^/.]+)\.webp$/)?.[1] ?? null;
-
-const extractPosterUuid = (key?: string) => key?.match(/\/posters\/([^/.]+)\.[^.]+$/)?.[1] ?? null;
 
 // 删除单个附件
 attachmentsRouter.delete('/:id', authenticateJWT, async (c: HonoContext) => {
@@ -149,13 +113,11 @@ attachmentsRouter.post(
   authenticateJWT,
   requireStorageConfig,
   async (c: HonoContext) => {
-    // 检查是否允许上传文件
-    const uiConfig = await getConfig<UiConfig>('ui');
-    if (uiConfig && uiConfig.allowUploadFile === false) {
-      return c.json(createResponse(null, 'File upload is currently disabled'), 403);
-    }
-
     const user = c.get('user') as User;
+    const uploadPolicy = await getAttachmentUploadPolicy(user.id);
+    if (!uploadPolicy.canUploadAttachments) {
+      return c.json(createResponse(null, 'capability_required:attachment.upload'), 403);
+    }
     const body = await c.req.json();
     const { files } = body as {
       files: Array<{ filename?: string; contentType?: string; size?: number }>;
@@ -170,28 +132,20 @@ attachmentsRouter.post(
     }
 
     const hasVideo = files.some((f) => isVideoContentType(f.contentType));
-    if (hasVideo && !canAlwaysUploadVideo(user.role) && !canRegularUserUploadVideo(uiConfig)) {
-      return c.json(
-        createResponse(null, 'Video upload is currently disabled for regular users'),
-        403
-      );
+    if (hasVideo && !uploadPolicy.canUploadVideo) {
+      return c.json(createResponse(null, 'capability_required:attachment.video.upload'), 403);
     }
-
-    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
 
     // 严格验证每个文件的内容类型和大小
     for (const f of files) {
       validateContentType(f.contentType);
-      if (isVideoContentType(f.contentType) && canAlwaysUploadVideo(user.role)) {
-        continue;
-      }
-      validateFileSize(f.size, f.contentType, maxVideoUploadSizeMB);
+      validateFileSize(f.size, f.contentType, uploadPolicy.maxVideoUploadSizeMB);
     }
 
     const results = await Promise.all(
       files.map(async (f) => {
         const uuid = randomUUID();
-        const ext = getExt(f.filename, f.contentType);
+        const ext = getUploadExtension(f.filename, f.contentType);
         const originalKey = `users/${user.id}/uploads/${uuid}${ext}`;
         const mediaKind = getMediaKindFromContentType(f.contentType);
         const original = await presignPutUrl(originalKey, f.contentType || undefined, 15 * 60);
@@ -243,7 +197,10 @@ attachmentsRouter.post(
   requireStorageConfig,
   async (c: HonoContext) => {
     const user = c.get('user') as User;
-    const uiConfig = await getConfig<UiConfig>('ui');
+    const uploadPolicy = await getAttachmentUploadPolicy(user.id);
+    if (!uploadPolicy.canUploadAttachments) {
+      return c.json(createResponse(null, 'capability_required:attachment.upload'), 403);
+    }
     const body = await c.req.json();
     const { attachments, noteId } = body as {
       attachments: Array<{
@@ -280,16 +237,11 @@ attachmentsRouter.post(
       throw new Error('Invalid object key');
     }
 
-    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
-
     // 验证 mimetype（如果提供）
     for (const a of attachments) {
       if (a.mimetype) {
         validateContentType(a.mimetype);
-        if (isVideoContentType(a.mimetype) && canAlwaysUploadVideo(user.role)) {
-          continue;
-        }
-        validateFileSize(a.size, a.mimetype, maxVideoUploadSizeMB);
+        validateFileSize(a.size, a.mimetype, uploadPolicy.maxVideoUploadSizeMB);
       }
     }
 
@@ -302,11 +254,8 @@ attachmentsRouter.post(
           key: a.originalKey,
         }) === 'video'
     );
-    if (hasVideo && !canAlwaysUploadVideo(user.role) && !canRegularUserUploadVideo(uiConfig)) {
-      return c.json(
-        createResponse(null, 'Video upload is currently disabled for regular users'),
-        403
-      );
+    if (hasVideo && !uploadPolicy.canUploadVideo) {
+      return c.json(createResponse(null, 'capability_required:attachment.video.upload'), 403);
     }
 
     // 验证文件存在性和 UUID 一致性

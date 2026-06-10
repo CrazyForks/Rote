@@ -511,6 +511,7 @@
         "ready": "Configuration ready",
         "chatReady": "Chat model configured",
         "unverified": "Verify your email to use AI",
+        "permissionDenied": "This account does not have permission to use site cloud AI chat",
         "unavailable": "AI or vector index is not available",
         "memoryUnavailable": "The chat model is configured, but AI memory still needs vector indexing"
       },
@@ -549,8 +550,8 @@
         "probeConfigured": "Configured",
         "probeMissing": "Not ready",
         "siteProbeChecking": "Reading the site AI status.",
-        "siteProbeReady": "The site AI configuration, account eligibility, and AI memory index are ready.",
-        "siteProbePartial": "The site chat model is configured, but account eligibility or the AI memory index is not ready.",
+        "siteProbeReady": "Site AI chat is ready. AI memory availability depends on the vector index status.",
+        "siteProbePartial": "The site chat model and permission are configured, but account eligibility is not ready.",
         "siteProbeMissing": "Site AI is not available yet. Use a personal model or contact an admin.",
         "personalProbeReady": "The model/API is enabled. You can test it; answers will use this configuration.",
         "personalProbeDisabled": "Model/API settings are filled in, so you can test the API. Turn on the switch to use it for answers.",
@@ -970,7 +971,8 @@
         "security": "Security Settings",
         "oauth": "OAuth Login",
         "ai": "AI Settings",
-        "users": "User Management"
+        "users": "User Management",
+        "permissions": "Permissions"
       },
       "dashboard": {
         "title": "Data Dashboard",
@@ -1081,8 +1083,6 @@
         },
         "apiRateLimit": "API Rate Limit",
         "apiRateLimitDescription": "Maximum number of requests per second allowed per user or IP address. Used to prevent API abuse. Minimum is 10, default is 100 requests/second.",
-        "allowUserVideoUpload": "Allow Video Upload for Regular Users",
-        "allowUserVideoUploadDesc": "Video upload is an advanced feature. Administrators can always use it; this switch controls whether regular users can upload videos.",
         "maxVideoUploadSizeMB": "Video Size Limit (MB)",
         "maxVideoUploadSizeMBDesc": "Maximum upload size per video. Minimum 1MB, default 300MB."
       },
@@ -1228,6 +1228,7 @@
           "verified": "Verified",
           "unverified": "Unverified",
           "homepage": "Homepage",
+          "permissions": "Configure Permissions",
           "verifyEmail": "Verify Email",
           "unverifyEmail": "Cancel Verification",
           "delete": "Delete"
@@ -1243,6 +1244,61 @@
           "cancel": "Cancel",
           "confirm": "Confirm Delete",
           "deleting": "Deleting..."
+        }
+      },
+      "permissions": {
+        "title": "Permissions",
+        "description": "Control role defaults and apply overrides for individual users.",
+        "readOnlyDescription": "Administrators can view permissions. Only super administrators can make changes.",
+        "saveRole": "Save Role",
+        "saveSuccess": "Role permissions saved",
+        "saveFailed": "Failed to save role permissions: {{error}}",
+        "unknownError": "Unknown error",
+        "effects": {
+          "inherit": "Inherit Role",
+          "allow": "Allow",
+          "deny": "Deny"
+        },
+        "effective": {
+          "allowed": "Currently Allowed",
+          "denied": "Currently Denied",
+          "dependencyDenied": "A required permission is denied, so this permission is not effective."
+        },
+        "roles": {
+          "user": {
+            "label": "User",
+            "description": "Default permissions inherited by newly registered users."
+          },
+          "moderator": {
+            "label": "Moderator",
+            "description": "Default permissions inherited by moderators."
+          },
+          "admin": {
+            "label": "Administrator",
+            "description": "Default permissions inherited by administrators."
+          }
+        },
+        "capabilities": {
+          "attachment.upload": {
+            "label": "Upload Attachments",
+            "description": "Allow images, documents, and other non-video attachments."
+          },
+          "attachment.video.upload": {
+            "label": "Upload Videos",
+            "description": "Allow video uploads; this requires attachment upload permission."
+          },
+          "ai.site.chat": {
+            "label": "Site Cloud AI Chat",
+            "description": "Allow the cloud chat model configured by the site."
+          }
+        },
+        "userDialog": {
+          "title": "Permissions for {{username}}",
+          "description": "User overrides take precedence over role defaults. Select inherit to remove an override.",
+          "close": "Close",
+          "save": "Save",
+          "saveSuccess": "User permissions saved",
+          "saveFailed": "Failed to save user permissions: {{error}}"
         }
       },
       "save": "Save",
@@ -1311,6 +1367,7 @@
       "saveSuccess": "Save successful",
       "saveFailed": "Save failed",
       "minimumPermission": "At least one permission is required",
+      "permissionUnavailable": "(not available for this account)",
       "permissions": {
         "SENDROTE": "Create Rote",
         "GETROTE": "Get Rote",
@@ -1320,6 +1377,7 @@
         "GETARTICLE": "Get Articles",
         "EDITARTICLE": "Edit Article (Including Delete)",
         "UPLOADATTACHMENT": "Upload Attachment",
+        "UPLOADVIDEO": "Upload Video",
         "DELETEATTACHMENT": "Delete Attachment",
         "ADDREACTION": "Add Reaction",
         "DELETEREACTION": "Delete Reaction",

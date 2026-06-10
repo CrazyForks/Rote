@@ -40,7 +40,7 @@ export function usePersonalAiTesting({
   function getModeProbe(mode: PersonalAiMode): PersonalAiProbe {
     if (mode === 'site') {
       const ready = Boolean(status?.available);
-      const partial = !ready && Boolean(status?.chatAvailable);
+      const partial = !ready && Boolean(status?.chatAvailable && status?.siteChatAllowed);
       return {
         ready,
         label: isStatusLoading

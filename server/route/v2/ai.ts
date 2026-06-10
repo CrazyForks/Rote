@@ -1,5 +1,12 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
+import {
+  getAiAccessError,
+  getAiAccessErrorFromAccess,
+  getAiMemoryAccessError,
+  getUserAiAccess,
+  isAiMemoryAvailableForAccess,
+} from '../../authz/aiAccess';
 import { type User } from '../../drizzle/schema';
 import { authenticateJWT } from '../../middleware/jwtAuth';
 import type { HonoContext, HonoVariables } from '../../types/hono';
@@ -8,6 +15,7 @@ import {
   probeChatProviderToolCalling,
   testChatProvider,
 } from '../../utils/ai/client';
+import { createDirectSiteChat, streamDirectSiteChat } from '../../utils/ai/directChat';
 import { runRoteAgentStream, type RoteAgentStreamEvent } from '../../utils/ai/agent/runtime';
 import {
   type AiSourceType,
@@ -17,7 +25,6 @@ import {
   getOwnerAiMemoryStats,
   getPgvectorStatus,
   getStoredAiConfig,
-  isAiEligibleUser,
   prepareRoteChatContext,
   searchMemoryWithFallback,
   logAiTokenUsage,
@@ -28,7 +35,6 @@ import { registerClientAgentRoutes } from './aiClientAgent';
 
 const aiRouter = new Hono<{ Variables: HonoVariables }>();
 const VALID_AI_SOURCE_TYPES = new Set<AiSourceType>(['rote', 'article']);
-const AI_VERIFICATION_REQUIRED_MESSAGE = 'AI features require a verified account';
 
 async function writeSseEvent(
   stream: Parameters<Parameters<typeof streamSSE>[1]>[0],
@@ -94,6 +100,7 @@ async function streamToolPlannedChatResponse(
     limit: body?.limit,
     excludeIds: body?.excludeIds,
     history: body?.history,
+    enableThinking: body?.enableThinking === true,
     onPlanThinkingDelta: async (text) => {
       await writeSseEvent(stream, 'thinking', { phase: 'retrieval_planning', text });
     },
@@ -154,7 +161,8 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
   const user = c.get('user') as User;
   const config = await getStoredAiConfig();
   const vectorStatus = await getPgvectorStatus();
-  const eligible = await isAiEligibleUser(user.id);
+  const access = await getUserAiAccess(user);
+  const eligible = access.verified;
   const memoryStats = await getOwnerAiMemoryStats(user.id);
   const chatBaseUrl = config.chat?.baseUrl || '';
   const isLocalChat =
@@ -164,18 +172,15 @@ aiRouter.get('/status', authenticateJWT, async (c: HonoContext) => {
     config.enabled === true &&
     Boolean(config.chat?.baseUrl?.trim()) &&
     Boolean(config.chat?.model?.trim());
-  const memoryAvailable =
-    eligible &&
-    config.enabled === true &&
-    config.vectorEnabled === true &&
-    vectorStatus.installed === true;
-  const available = memoryAvailable && chatAvailable;
+  const memoryAvailable = isAiMemoryAvailableForAccess({ access, config, vectorStatus });
+  const available = eligible && access.siteChatAllowed && chatAvailable;
   return c.json(
     createResponse({
       enabled: config.enabled,
       vectorEnabled: config.vectorEnabled,
       publicExploreVectorEnabled: config.publicExploreVectorEnabled,
       eligible,
+      siteChatAllowed: access.siteChatAllowed,
       chatAvailable,
       chatProviderId: config.chat?.providerId || '',
       chatModel: config.chat?.model || '',
@@ -194,14 +199,16 @@ aiRouter.post('/site/test', authenticateJWT, async (c: HonoContext) => {
   const user = c.get('user') as User;
   const config = await getStoredAiConfig();
   const vectorStatus = await getPgvectorStatus();
-  const eligible = await isAiEligibleUser(user.id);
+  const access = await getUserAiAccess(user);
+  const eligible = access.verified;
   const chatAvailable =
     config.enabled === true &&
     Boolean(config.chat?.baseUrl?.trim()) &&
     Boolean(config.chat?.model?.trim());
   const vectorAvailable = config.vectorEnabled === true && vectorStatus.installed === true;
 
-  if (!eligible) {
+  const accessError = await getAiAccessError(user);
+  if (accessError) {
     return c.json(
       createResponse(
         {
@@ -211,7 +218,7 @@ aiRouter.post('/site/test', authenticateJWT, async (c: HonoContext) => {
           vectorAvailable,
           model: config.chat?.model || '',
         },
-        AI_VERIFICATION_REQUIRED_MESSAGE
+        accessError
       ),
       403
     );
@@ -259,8 +266,9 @@ aiRouter.post('/site/test', authenticateJWT, async (c: HonoContext) => {
 
 aiRouter.post('/search', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
   const user = c.get('user') as User;
-  if (!(await isAiEligibleUser(user.id))) {
-    return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+  const accessError = await getAiMemoryAccessError(user);
+  if (accessError) {
+    return c.json(createResponse(null, accessError), 403);
   }
 
   const body = await c.req.json();
@@ -287,8 +295,9 @@ aiRouter.post('/search', authenticateJWT, bodyTypeCheck, async (c: HonoContext) 
 
 aiRouter.post('/related-notes', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
   const user = c.get('user') as User;
-  if (!(await isAiEligibleUser(user.id))) {
-    return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+  const accessError = await getAiMemoryAccessError(user);
+  if (accessError) {
+    return c.json(createResponse(null, accessError), 403);
   }
 
   const body = await c.req.json();
@@ -335,8 +344,10 @@ aiRouter.post('/related-notes', authenticateJWT, bodyTypeCheck, async (c: HonoCo
 
 aiRouter.post('/chat', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
   const user = c.get('user') as User;
-  if (!(await isAiEligibleUser(user.id))) {
-    return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+  const access = await getUserAiAccess(user);
+  const accessError = getAiAccessErrorFromAccess(access);
+  if (accessError) {
+    return c.json(createResponse(null, accessError), 403);
   }
 
   const body = await c.req.json();
@@ -346,20 +357,33 @@ aiRouter.post('/chat', authenticateJWT, bodyTypeCheck, async (c: HonoContext) =>
     return c.json(createResponse(null, 'Message is required'), 400);
   }
 
-  const result = await chatWithRoteContext({
-    ownerId: user.id,
-    message,
-    limit: body?.limit,
-    excludeIds: body?.excludeIds,
-    history: body?.history,
-  });
+  const [config, vectorStatus] = await Promise.all([getStoredAiConfig(), getPgvectorStatus()]);
+  const memoryAvailable = isAiMemoryAvailableForAccess({ access, config, vectorStatus });
+  const result = memoryAvailable
+    ? await chatWithRoteContext({
+        ownerId: user.id,
+        message,
+        limit: body?.limit,
+        excludeIds: body?.excludeIds,
+        history: body?.history,
+      })
+    : {
+        answer: await createDirectSiteChat({
+          userId: user.id,
+          message,
+          history: body?.history,
+          enableThinking: body?.enableThinking === true,
+        }),
+        sources: [],
+      };
   return c.json(createResponse(result), 200);
 });
 
 aiRouter.post('/agent/stream', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
   const user = c.get('user') as User;
-  if (!(await isAiEligibleUser(user.id))) {
-    return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+  const memoryAccessError = await getAiMemoryAccessError(user);
+  if (memoryAccessError) {
+    return c.json(createResponse(null, memoryAccessError), 403);
   }
 
   const body = await c.req.json();
@@ -406,8 +430,10 @@ aiRouter.post('/agent/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCon
 
 aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoContext) => {
   const user = c.get('user') as User;
-  if (!(await isAiEligibleUser(user.id))) {
-    return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+  const access = await getUserAiAccess(user);
+  const accessError = getAiAccessErrorFromAccess(access);
+  if (accessError) {
+    return c.json(createResponse(null, accessError), 403);
   }
 
   const body = await c.req.json();
@@ -420,7 +446,21 @@ aiRouter.post('/chat/stream', authenticateJWT, bodyTypeCheck, async (c: HonoCont
   return streamSSE(c, async (stream) => {
     try {
       await stream.write(': connected\n\n');
-      await streamToolPlannedChatResponse(stream, user, body, message);
+      const [config, vectorStatus] = await Promise.all([getStoredAiConfig(), getPgvectorStatus()]);
+      if (isAiMemoryAvailableForAccess({ access, config, vectorStatus })) {
+        await streamToolPlannedChatResponse(stream, user, body, message);
+      } else {
+        await streamDirectSiteChat({
+          userId: user.id,
+          message,
+          history: body?.history,
+          enableThinking: body?.enableThinking === true,
+          onReasoning: (text) => writeSseEvent(stream, 'thinking', { phase: 'answer', text }),
+          onContent: (text) => writeSseEvent(stream, 'delta', { text }),
+          onUsage: (usage) => writeSseEvent(stream, 'usage', { phase: 'answer', usage }),
+        });
+        await writeSseEvent(stream, 'done', {});
+      }
     } catch (error: any) {
       await writeSseEvent(stream, 'error', {
         message: error?.message || 'AI stream failed',

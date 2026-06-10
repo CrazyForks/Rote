@@ -88,7 +88,7 @@ function SingleRotePage() {
   }
 
   const isOwner = Boolean(profile?.username && rote?.author?.username === profile.username);
-  const canUseAi = siteStatus?.ai?.available === true && profile?.emailVerified === true;
+  const canUseAi = siteStatus?.ai?.memoryAvailable === true && profile?.emailVerified === true;
 
   const SideBar = () =>
     isLoading ? (

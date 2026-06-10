@@ -515,6 +515,7 @@
         "ready": "設定準備完了",
         "chatReady": "チャットモデル設定済み",
         "unverified": "メール確認後に AI を利用できます",
+        "permissionDenied": "このアカウントにはサイトのクラウド AI チャット権限がありません",
         "unavailable": "AI またはベクトル索引を利用できません",
         "memoryUnavailable": "チャットモデルは設定済みですが、AI メモリーにはベクトル索引が必要です"
       },
@@ -553,8 +554,8 @@
         "probeConfigured": "設定済み",
         "probeMissing": "未準備",
         "siteProbeChecking": "サイト AI の状態を読み取っています。",
-        "siteProbeReady": "サイト AI 設定、アカウント資格、AI メモリー索引が準備完了です。",
-        "siteProbePartial": "サイトのチャットモデルは設定済みですが、アカウント資格または AI メモリー索引が未準備です。",
+        "siteProbeReady": "サイト AI チャットは利用できます。AI メモリーの可用性はベクトル索引の状態に依存します。",
+        "siteProbePartial": "サイトのチャットモデルと権限は設定済みですが、アカウント資格が未準備です。",
         "siteProbeMissing": "サイト AI はまだ利用できません。個人モデルを使うか管理者に連絡してください。",
         "personalProbeReady": "モデル/API は有効です。API をテストできます。回答時はこの設定を使用します。",
         "personalProbeDisabled": "モデル/API 設定は入力済みなので API をテストできます。回答に使うにはスイッチをオンにしてください。",
@@ -974,7 +975,8 @@
         "security": "セキュリティ設定",
         "oauth": "OAuth ログイン",
         "ai": "AI 関連",
-        "users": "ユーザー管理"
+        "users": "ユーザー管理",
+        "permissions": "権限管理"
       },
       "dashboard": {
         "title": "データダッシュボード",
@@ -1085,8 +1087,6 @@
         },
         "apiRateLimit": "API レート制限",
         "apiRateLimitDescription": "ユーザーまたはIPアドレスごとに許可される1秒あたりの最大リクエスト数。APIの悪用を防ぐために使用されます。最小値は10、デフォルトは100リクエスト/秒です。",
-        "allowUserVideoUpload": "一般ユーザーに動画アップロードを許可",
-        "allowUserVideoUploadDesc": "動画アップロードは高度な機能です。管理者は常に利用でき、このスイッチは一般ユーザーの利用可否を制御します。",
         "maxVideoUploadSizeMB": "動画サイズ上限（MB）",
         "maxVideoUploadSizeMBDesc": "動画1件あたりの最大アップロードサイズ。最小1MB、既定値は300MBです。"
       },
@@ -1232,6 +1232,7 @@
           "verified": "確認済み",
           "unverified": "未確認",
           "homepage": "ホームページ",
+          "permissions": "権限を設定",
           "verifyEmail": "メールを確認",
           "unverifyEmail": "認証解除",
           "delete": "削除"
@@ -1247,6 +1248,61 @@
           "cancel": "キャンセル",
           "confirm": "削除を確認",
           "deleting": "削除中..."
+        }
+      },
+      "permissions": {
+        "title": "権限管理",
+        "description": "ロールのデフォルト権限を制御し、ユーザーごとの上書きを設定します。",
+        "readOnlyDescription": "管理者は権限を閲覧できます。変更できるのはスーパー管理者のみです。",
+        "saveRole": "ロールを保存",
+        "saveSuccess": "ロール権限を保存しました",
+        "saveFailed": "ロール権限の保存に失敗しました：{{error}}",
+        "unknownError": "不明なエラー",
+        "effects": {
+          "inherit": "ロールを継承",
+          "allow": "許可",
+          "deny": "拒否"
+        },
+        "effective": {
+          "allowed": "現在許可",
+          "denied": "現在拒否",
+          "dependencyDenied": "必要な権限が拒否されているため、この権限は有効になりません。"
+        },
+        "roles": {
+          "user": {
+            "label": "ユーザー",
+            "description": "新規登録ユーザーが継承するデフォルト権限です。"
+          },
+          "moderator": {
+            "label": "モデレーター",
+            "description": "モデレーターが継承するデフォルト権限です。"
+          },
+          "admin": {
+            "label": "管理者",
+            "description": "管理者が継承するデフォルト権限です。"
+          }
+        },
+        "capabilities": {
+          "attachment.upload": {
+            "label": "添付ファイルをアップロード",
+            "description": "画像、文書、その他の動画以外の添付ファイルを許可します。"
+          },
+          "attachment.video.upload": {
+            "label": "動画をアップロード",
+            "description": "動画のアップロードを許可します。添付ファイルのアップロード権限が必要です。"
+          },
+          "ai.site.chat": {
+            "label": "サイトのクラウド AI チャット",
+            "description": "サイトで設定されたクラウドチャットモデルの使用を許可します。"
+          }
+        },
+        "userDialog": {
+          "title": "{{username}} の権限",
+          "description": "ユーザーの上書きはロールのデフォルトより優先されます。継承を選ぶと上書きを削除します。",
+          "close": "閉じる",
+          "save": "保存",
+          "saveSuccess": "ユーザー権限を保存しました",
+          "saveFailed": "ユーザー権限の保存に失敗しました：{{error}}"
         }
       },
       "save": "保存",
@@ -1315,6 +1371,7 @@
       "saveSuccess": "保存成功",
       "saveFailed": "保存失敗",
       "minimumPermission": "少なくとも1つの権限が必要です",
+      "permissionUnavailable": "（このアカウントでは利用不可）",
       "permissions": {
         "SENDROTE": "Rote を作成",
         "GETROTE": "Rote を取得",
@@ -1324,6 +1381,7 @@
         "GETARTICLE": "記事を取得",
         "EDITARTICLE": "記事を編集（削除を含む）",
         "UPLOADATTACHMENT": "添付ファイルをアップロード",
+        "UPLOADVIDEO": "動画をアップロード",
         "DELETEATTACHMENT": "添付ファイルを削除",
         "ADDREACTION": "リアクションを追加",
         "DELETEREACTION": "リアクションを削除",

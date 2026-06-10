@@ -29,6 +29,7 @@ import {
   type RetrievalSnippet,
   type SearchRotesProbeResult,
 } from '../ai/retrievalPlan';
+import { hasCapability } from '../../authz/capabilityService';
 import { getConfig, getGlobalConfig, setConfig } from '../config';
 import db from '../drizzle';
 import { logAiTokenUsage } from './aiToken';
@@ -92,7 +93,7 @@ export async function isAiEligibleUser(userId: string): Promise<boolean> {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  return user?.emailVerified === true;
+  return user?.emailVerified === true && (await hasCapability(userId, 'ai.site.chat'));
 }
 
 export async function getOwnerAiMemoryStats(ownerId: string): Promise<{
@@ -1352,6 +1353,7 @@ export async function prepareRoteChatContext(params: {
   history?: { role: 'user' | 'assistant'; content: string }[];
   onPlanGenerated?: (plan: PlannerAgentDto) => Promise<void> | void;
   onPlanThinkingDelta?: (text: string) => Promise<void> | void;
+  enableThinking?: boolean;
 }): Promise<{
   config: AiConfig;
   messages: ChatMessage[];
@@ -1371,6 +1373,7 @@ export async function prepareRoteChatContext(params: {
     history: params.history,
     executeSearch: searchRotesProbe,
     excludeIds: sanitizeExcludeIds(params.excludeIds),
+    enableThinking: params.enableThinking === true,
     onThinkingDelta: params.onPlanThinkingDelta,
     onUsage: (usage) => logChatTokenUsage(params.ownerId, config.chat.model, usage),
   });

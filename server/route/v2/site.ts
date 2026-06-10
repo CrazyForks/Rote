@@ -43,13 +43,12 @@ async function getPublicAiStatus() {
       aiConfig.enabled === true &&
       aiConfig.vectorEnabled === true &&
       vectorStatus.installed === true;
-    const available = chatAvailable && memoryAvailable;
 
     return {
       enabled: aiConfig.enabled === true,
       vectorEnabled: aiConfig.vectorEnabled === true,
       publicExploreVectorEnabled: aiConfig.publicExploreVectorEnabled === true,
-      available,
+      available: chatAvailable,
       chatAvailable,
       memoryAvailable,
       vectorAvailable: vectorStatus.available === true,
@@ -179,7 +178,6 @@ siteRouter.get('/status', async (c: HonoContext) => {
       ui: {
         allowRegistration: uiConfig?.allowRegistration ?? true,
         allowUploadFile: uiConfig?.allowUploadFile ?? true,
-        allowUserVideoUpload: uiConfig?.allowUserVideoUpload ?? false,
         maxVideoUploadSizeMB: uiConfig?.maxVideoUploadSizeMB ?? 300,
       },
 

@@ -109,17 +109,16 @@ function AiMemoryPage() {
     Boolean(activePersonalConfig.baseUrl.trim()) &&
     Boolean(activePersonalConfig.model.trim());
   const unavailable =
-    !isStatusLoading &&
-    (isPersonalModelMode
-      ? !personalAiReady
-      : !status?.enabled || !status.vectorEnabled || !status.available);
+    !isStatusLoading && (isPersonalModelMode ? !personalAiReady : status?.available !== true);
   const unavailableText = isPersonalModelMode
     ? t('personal.personalUnavailable')
     : status?.eligible === false
       ? t('status.unverified')
-      : status?.chatAvailable
-        ? t('status.memoryUnavailable')
-        : t('status.unavailable');
+      : status?.siteChatAllowed === false
+        ? t('status.permissionDenied')
+        : status?.chatAvailable
+          ? t('status.memoryUnavailable')
+          : t('status.unavailable');
   const canSend = !isSending && !unavailable && input.trim().length > 0;
   const memoryStats = status?.memoryStats;
   const indexedRoteCount = memoryStats?.indexedRoteCount ?? 0;
@@ -192,7 +191,7 @@ function AiMemoryPage() {
       unavailable,
       mode: personalAi.mode,
       personalConfig: isPersonalModelMode ? activePersonalConfig : undefined,
-      toolsAvailable: isPersonalModelMode ? status?.memoryAvailable === true : undefined,
+      toolsAvailable: status?.memoryAvailable === true,
       enableThinking,
       labels: aiRunLabels,
     });

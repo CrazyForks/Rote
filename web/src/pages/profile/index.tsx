@@ -1,5 +1,6 @@
 import NavBar from '@/components/layout/navBar';
 import { useSiteStatus } from '@/hooks/useSiteStatus';
+import { usePermissions } from '@/hooks/usePermissions';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
 import {
   loadProfileAtom,
@@ -28,8 +29,6 @@ import { createCroppedImage, uploadAvatar, uploadCover } from './utils/avatarUpl
 
 function ProfilePage() {
   const { data: siteStatus } = useSiteStatus();
-  const canUpload =
-    !!siteStatus?.storage?.r2Configured && siteStatus?.ui?.allowUploadFile !== false;
   const { t } = useTranslation('translation', { keyPrefix: 'pages.profile' });
   const { t: tLogin } = useTranslation('translation', { keyPrefix: 'pages.login' });
   const inputAvatarRef = useRef<HTMLInputElement>(null);
@@ -41,6 +40,11 @@ function ProfilePage() {
 
   // 使用 Jotai 托管 profile 与 user settings
   const profile = useAtomValue(profileAtom);
+  const { capabilities } = usePermissions();
+  const canUpload =
+    !!siteStatus?.storage?.r2Configured &&
+    siteStatus?.ui?.allowUploadFile !== false &&
+    capabilities?.['attachment.upload'].allowed === true;
   const loadProfile = useSetAtom(loadProfileAtom);
   const loadUserSettings = useSetAtom(loadUserSettingsAtom);
   const patchProfile = useSetAtom(patchProfileAtom);

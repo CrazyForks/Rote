@@ -501,6 +501,7 @@
         "ready": "配置已就绪",
         "chatReady": "对话模型已配置",
         "unverified": "验证邮箱后可使用 AI",
+        "permissionDenied": "当前账号没有站内云端 AI 对话权限",
         "unavailable": "AI 或向量索引暂不可用",
         "memoryUnavailable": "对话模型已配置，AI 记忆还需要启用向量索引"
       },
@@ -539,8 +540,8 @@
         "probeConfigured": "已配置",
         "probeMissing": "未就绪",
         "siteProbeChecking": "正在读取站内 AI 状态。",
-        "siteProbeReady": "站内 AI 配置、账号资格和 AI 记忆索引都已就绪。",
-        "siteProbePartial": "站内对话模型已配置，但账号资格或 AI 记忆索引还未就绪。",
+        "siteProbeReady": "站内 AI 对话已就绪；AI 记忆是否可用取决于向量索引状态。",
+        "siteProbePartial": "站内对话模型和权限已配置，但账号资格还未就绪。",
         "siteProbeMissing": "站内 AI 还不可用，请使用个人模型或联系管理员。",
         "personalProbeReady": "模型/API 已启用；可测试接口，回答时会使用该配置。",
         "personalProbeDisabled": "模型/API 配置已填写，可以测试接口；打开开关后才会用于回答。",
@@ -960,7 +961,8 @@
         "security": "安全设置",
         "oauth": "OAuth 登录",
         "ai": "AI 相关",
-        "users": "用户管理"
+        "users": "用户管理",
+        "permissions": "权限管理"
       },
       "dashboard": {
         "title": "数据看板",
@@ -1071,8 +1073,6 @@
         },
         "apiRateLimit": "API 速率限制",
         "apiRateLimitDescription": "每个用户或 IP 地址每秒允许的最大请求数。用于防止 API 滥用。最小值为 10，默认值为 100 请求/秒。",
-        "allowUserVideoUpload": "向普通用户开放视频上传",
-        "allowUserVideoUploadDesc": "视频上传属于高级功能。管理员始终可用，此开关决定普通用户是否可以上传视频。",
         "maxVideoUploadSizeMB": "视频大小上限（MB）",
         "maxVideoUploadSizeMBDesc": "单个视频允许上传的最大大小，最小值为 1MB，默认值为 300MB。"
       },
@@ -1218,6 +1218,7 @@
           "verified": "已验证",
           "unverified": "未验证",
           "homepage": "主页",
+          "permissions": "配置权限",
           "verifyEmail": "验证邮箱",
           "unverifyEmail": "取消验证",
           "delete": "删除"
@@ -1233,6 +1234,61 @@
           "cancel": "取消",
           "confirm": "确认删除",
           "deleting": "删除中..."
+        }
+      },
+      "permissions": {
+        "title": "权限管理",
+        "description": "分别控制角色默认权限，并为单个用户设置覆盖规则。",
+        "readOnlyDescription": "管理员可以查看权限配置，只有超级管理员可以修改。",
+        "saveRole": "保存角色",
+        "saveSuccess": "角色权限已保存",
+        "saveFailed": "保存角色权限失败：{{error}}",
+        "unknownError": "未知错误",
+        "effects": {
+          "inherit": "继承角色",
+          "allow": "允许",
+          "deny": "拒绝"
+        },
+        "effective": {
+          "allowed": "当前允许",
+          "denied": "当前拒绝",
+          "dependencyDenied": "依赖的权限被拒绝，因此当前权限不会生效。"
+        },
+        "roles": {
+          "user": {
+            "label": "普通用户",
+            "description": "新注册普通用户默认继承这些权限。"
+          },
+          "moderator": {
+            "label": "版主",
+            "description": "版主默认继承这些权限。"
+          },
+          "admin": {
+            "label": "管理员",
+            "description": "管理员默认继承这些权限。"
+          }
+        },
+        "capabilities": {
+          "attachment.upload": {
+            "label": "上传附件",
+            "description": "允许上传图片、文档和其他非视频附件。"
+          },
+          "attachment.video.upload": {
+            "label": "上传视频",
+            "description": "允许上传视频；该权限依赖上传附件权限。"
+          },
+          "ai.site.chat": {
+            "label": "站内云端 AI 对话",
+            "description": "允许使用站点配置的云端对话模型。"
+          }
+        },
+        "userDialog": {
+          "title": "{{username}} 的权限",
+          "description": "用户覆盖规则优先于角色默认权限；选择继承可移除覆盖规则。",
+          "close": "关闭",
+          "save": "保存",
+          "saveSuccess": "用户权限已保存",
+          "saveFailed": "保存用户权限失败：{{error}}"
         }
       },
       "save": "保存",
@@ -1301,6 +1357,7 @@
       "saveSuccess": "保存成功",
       "saveFailed": "保存失败",
       "minimumPermission": "至少需要一个权限",
+      "permissionUnavailable": "（当前账号不可用）",
       "permissions": {
         "SENDROTE": "创建Rote",
         "GETROTE": "获取Rote",
@@ -1310,6 +1367,7 @@
         "GETARTICLE": "获取文章",
         "EDITARTICLE": "编辑文章（包括删除）",
         "UPLOADATTACHMENT": "上传附件",
+        "UPLOADVIDEO": "上传视频",
         "DELETEATTACHMENT": "删除附件",
         "ADDREACTION": "添加反应",
         "DELETEREACTION": "删除反应",
