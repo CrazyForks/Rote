@@ -11,6 +11,8 @@ export interface AiStatus {
   available: boolean;
   memoryAvailable?: boolean;
   chatAvailable?: boolean;
+  siteChatAllowed?: boolean;
+  memoryAllowed?: boolean;
   chatProviderId?: string;
   chatModel?: string;
   chatMode?: 'disabled' | 'site' | 'local';

@@ -4,19 +4,19 @@ import { Button } from '@/components/ui/button';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
 import { useAuthState } from '@/state/profile';
 import { get } from '@/utils/api';
-import { Brain, Database, Globe, Settings, Shield, Users } from 'lucide-react';
+import { Activity, Brain, Database, Globe, KeyRound, Settings, Shield, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
 import AIConfigTab from './components/AIConfigTab';
 import OAuthConfigTab from './components/OAuthConfigTab';
+import PermissionsTab from './components/PermissionsTab';
 import SiteConfigTab from './components/SiteConfigTab';
 import StorageConfigTab from './components/StorageConfigTab';
 import UIConfigTab from './components/UIConfigTab';
 import UsersTab from './components/UsersTab';
 import DashboardTab from './components/DashboardTab';
 import type { SystemConfig } from './types';
-import { Activity } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { t } = useTranslation('translation', { keyPrefix: 'pages.admin' });
@@ -24,7 +24,7 @@ export default function AdminDashboard() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'site' | 'storage' | 'ui' | 'oauth' | 'users' | 'ai'
+    'dashboard' | 'site' | 'storage' | 'ui' | 'oauth' | 'users' | 'ai' | 'permissions'
   >('dashboard');
 
   const {
@@ -68,7 +68,6 @@ export default function AdminDashboard() {
         configs.ui || {
           allowRegistration: true,
           allowUploadFile: true,
-          allowUserVideoUpload: false,
           defaultUserRole: 'user',
           apiRateLimit: 100,
           maxVideoUploadSizeMB: 300,
@@ -149,6 +148,14 @@ export default function AdminDashboard() {
           >
             <Users className="size-4" />
             {t('tabs.users')}
+          </Button>
+          <Button
+            variant={activeTab === 'permissions' ? 'default' : 'ghost'}
+            onClick={() => setActiveTab('permissions')}
+            className="flex items-center gap-2 rounded-none"
+          >
+            <KeyRound className="size-4" />
+            {t('tabs.permissions')}
           </Button>
           <Button
             variant={activeTab === 'ai' ? 'default' : 'ghost'}
@@ -232,6 +239,9 @@ export default function AdminDashboard() {
 
         {/* 用户管理 */}
         {activeTab === 'users' && <UsersTab />}
+
+        {/* 权限管理 */}
+        {activeTab === 'permissions' && <PermissionsTab />}
       </div>
     </ContainerWithSideBar>
   );

@@ -1,4 +1,5 @@
 import type { Hono } from 'hono';
+import { getAiAccessError } from '../../authz/aiAccess';
 import { type User } from '../../drizzle/schema';
 import { authenticateJWT } from '../../middleware/jwtAuth';
 import type { HonoContext, HonoVariables } from '../../types/hono';
@@ -12,7 +13,6 @@ import { DEFAULT_AGENT_POLICY } from '../../utils/ai/agent/types';
 import { getPgvectorStatus, getStoredAiConfig, isAiEligibleUser } from '../../utils/dbMethods';
 import { bodyTypeCheck, createResponse } from '../../utils/main';
 
-const AI_VERIFICATION_REQUIRED_MESSAGE = `AI features require a verified account`;
 const AI_MEMORY_TOOLS_UNAVAILABLE_MESSAGE = `AI memory tools are not available`;
 
 function normalizeSourcePreview(text: unknown): string {
@@ -88,11 +88,11 @@ function sanitizeClientModelContent(value: string): string {
   }
 }
 
-async function getClientToolConfig(userId: string) {
+async function getClientToolConfig(user: User) {
   const [config, vectorStatus, eligible] = await Promise.all([
     getStoredAiConfig(),
     getPgvectorStatus(),
-    isAiEligibleUser(userId),
+    isAiEligibleUser(user.id),
   ]);
   const memoryAvailable =
     eligible &&
@@ -100,15 +100,20 @@ async function getClientToolConfig(userId: string) {
     config.vectorEnabled === true &&
     vectorStatus.installed === true;
 
-  return { config, eligible, memoryAvailable };
+  return {
+    config,
+    eligible,
+    memoryAvailable,
+    accessError: await getAiAccessError(user, 'ai.memory.search'),
+  };
 }
 
 export function registerClientAgentRoutes(router: Hono<{ Variables: HonoVariables }>) {
   router.get('/client-agent/bootstrap', authenticateJWT, async (c: HonoContext) => {
     const user = c.get('user') as User;
-    const { eligible, memoryAvailable } = await getClientToolConfig(user.id);
+    const { accessError, memoryAvailable } = await getClientToolConfig(user);
 
-    if (!eligible) return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+    if (accessError) return c.json(createResponse(null, accessError), 403);
     if (!memoryAvailable) {
       return c.json(createResponse(null, AI_MEMORY_TOOLS_UNAVAILABLE_MESSAGE), 403);
     }
@@ -137,9 +142,9 @@ export function registerClientAgentRoutes(router: Hono<{ Variables: HonoVariable
     async (c: HonoContext) => {
       const user = c.get('user') as User;
       const body = await c.req.json();
-      const { config, eligible, memoryAvailable } = await getClientToolConfig(user.id);
+      const { config, accessError, memoryAvailable } = await getClientToolConfig(user);
 
-      if (!eligible) return c.json(createResponse(null, AI_VERIFICATION_REQUIRED_MESSAGE), 403);
+      if (accessError) return c.json(createResponse(null, accessError), 403);
       if (!memoryAvailable) {
         return c.json(createResponse(null, AI_MEMORY_TOOLS_UNAVAILABLE_MESSAGE), 403);
       }

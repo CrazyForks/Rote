@@ -137,19 +137,6 @@ export default function UIConfigTab({
 
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
-            <Label>{t('ui.allowUserVideoUpload')}</Label>
-            <p className="text-muted-foreground text-sm">{t('ui.allowUserVideoUploadDesc')}</p>
-          </div>
-          <Switch
-            checked={uiConfig?.allowUserVideoUpload ?? false}
-            onCheckedChange={(checked) =>
-              setUiConfig({ ...(uiConfig || {}), allowUserVideoUpload: checked })
-            }
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
             <Label>{t('security.requireVerifiedEmailForExplore')}</Label>
             <p className="text-muted-foreground text-sm">
               {t('security.requireVerifiedEmailForExploreDesc')}

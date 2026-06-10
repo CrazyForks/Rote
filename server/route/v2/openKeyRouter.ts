@@ -5,11 +5,18 @@
 
 import { randomUUID } from 'crypto';
 import { Hono } from 'hono';
+import {
+  extractCompressedUuid,
+  extractOriginalUploadUuid,
+  extractPosterUuid,
+  getUploadExtension,
+} from '../../attachments/uploadKeys';
+import { getAttachmentUploadPolicy } from '../../attachments/uploadPolicy';
 import { requireStorageConfig } from '../../middleware/configCheck';
-import type { StorageConfig, UiConfig } from '../../types/config';
+import type { StorageConfig } from '../../types/config';
 import type { HonoContext, HonoVariables } from '../../types/hono';
 import type { UploadResult } from '../../types/main';
-import { getConfig, getGlobalConfig } from '../../utils/config';
+import { getGlobalConfig } from '../../utils/config';
 import {
   addReaction,
   createArticle,
@@ -36,7 +43,6 @@ import {
   getNoteArticleCard,
   getNoteByArticleId,
   listMyArticles,
-  oneUser,
   removeReaction,
   searchMyRotes,
   setNoteArticleId,
@@ -47,7 +53,6 @@ import {
   upsertAttachmentsByOriginalKey,
 } from '../../utils/dbMethods';
 import {
-  DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB,
   MAX_BATCH_SIZE,
   MAX_FILES,
   getMediaKindFromContentType,
@@ -73,48 +78,6 @@ import {
 } from '../../utils/zod';
 
 const router = new Hono<{ Variables: HonoVariables }>();
-
-const canAlwaysUploadVideo = (role?: string | null) => role === 'admin' || role === 'super_admin';
-
-const canRegularUserUploadVideo = (uiConfig?: UiConfig | null) =>
-  uiConfig?.allowUserVideoUpload === true;
-
-const getMaxVideoUploadSizeMB = (uiConfig?: UiConfig | null) => {
-  const configured = uiConfig?.maxVideoUploadSizeMB;
-  return typeof configured === 'number' && configured > 0
-    ? configured
-    : DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB;
-};
-
-const getExt = (filename?: string, contentType?: string) => {
-  if (filename && filename.includes('.')) return `.${filename.split('.').pop()}`;
-  if (!contentType) return '';
-
-  const map: Record<string, string> = {
-    'image/jpeg': '.jpg',
-    'image/jpg': '.jpg',
-    'image/png': '.png',
-    'image/webp': '.webp',
-    'image/gif': '.gif',
-    'image/heic': '.heic',
-    'image/heif': '.heif',
-    'image/avif': '.avif',
-    'image/svg+xml': '.svg',
-    'video/mp4': '.mp4',
-    'video/webm': '.webm',
-    'video/quicktime': '.mov',
-  };
-
-  return map[contentType] || '';
-};
-
-const extractOriginalUploadUuid = (key?: string) =>
-  key?.match(/\/uploads\/([^/.]+)(\.[^.]+)?$/)?.[1] ?? null;
-
-const extractCompressedUuid = (key?: string) =>
-  key?.match(/\/compressed\/([^/.]+)\.webp$/)?.[1] ?? null;
-
-const extractPosterUuid = (key?: string) => key?.match(/\/posters\/([^/.]+)\.[^.]+$/)?.[1] ?? null;
 
 function requireOpenKeyPerm(...perms: string[]) {
   return async (c: HonoContext, next: () => Promise<void>) => {
@@ -1010,13 +973,11 @@ router.post(
   requireOpenKeyPerm('UPLOADATTACHMENT'),
   requireStorageConfig,
   async (c: HonoContext) => {
-    // Check if file upload is allowed
-    const uiConfig = await getConfig<UiConfig>('ui');
-    if (uiConfig && uiConfig.allowUploadFile === false) {
-      return c.json(createResponse(null, 'File upload is currently disabled'), 403);
-    }
-
     const openKey = c.get('openKey')!;
+    const uploadPolicy = await getAttachmentUploadPolicy(openKey.userid);
+    if (!uploadPolicy.canUploadAttachments) {
+      return c.json(createResponse(null, 'capability_required:attachment.upload'), 403);
+    }
     const body = await c.req.json();
     const { files } = body as {
       files: Array<{ filename?: string; contentType?: string; size?: number }>;
@@ -1029,30 +990,24 @@ router.post(
       throw new Error(`Maximum ${MAX_FILES} files allowed`);
     }
 
-    const owner = await oneUser(openKey.userid);
     const hasVideo = files.some((f) => isVideoContentType(f.contentType));
-    if (hasVideo && !canAlwaysUploadVideo(owner?.role) && !canRegularUserUploadVideo(uiConfig)) {
-      return c.json(
-        createResponse(null, 'Video upload is currently disabled for regular users'),
-        403
-      );
+    if (hasVideo && !openKey.permissions.includes('UPLOADVIDEO')) {
+      return c.json(createResponse(null, 'openkey_permission_required:UPLOADVIDEO'), 403);
     }
-
-    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
+    if (hasVideo && !uploadPolicy.canUploadVideo) {
+      return c.json(createResponse(null, 'capability_required:attachment.video.upload'), 403);
+    }
 
     // Strict validation
     for (const f of files) {
       validateContentType(f.contentType);
-      if (isVideoContentType(f.contentType) && canAlwaysUploadVideo(owner?.role)) {
-        continue;
-      }
-      validateFileSize(f.size, f.contentType, maxVideoUploadSizeMB);
+      validateFileSize(f.size, f.contentType, uploadPolicy.maxVideoUploadSizeMB);
     }
 
     const results = await Promise.all(
       files.map(async (f) => {
         const uuid = randomUUID();
-        const ext = getExt(f.filename, f.contentType);
+        const ext = getUploadExtension(f.filename, f.contentType);
         const originalKey = `users/${openKey.userid}/uploads/${uuid}${ext}`;
         const mediaKind = getMediaKindFromContentType(f.contentType);
         const original = await presignPutUrl(originalKey, f.contentType || undefined, 15 * 60);
@@ -1105,7 +1060,10 @@ router.post(
   requireStorageConfig,
   async (c: HonoContext) => {
     const openKey = c.get('openKey')!;
-    const uiConfig = await getConfig<UiConfig>('ui');
+    const uploadPolicy = await getAttachmentUploadPolicy(openKey.userid);
+    if (!uploadPolicy.canUploadAttachments) {
+      return c.json(createResponse(null, 'capability_required:attachment.upload'), 403);
+    }
     const body = await c.req.json();
     const { attachments, noteId } = body as {
       attachments: Array<{
@@ -1141,16 +1099,10 @@ router.post(
       throw new Error('Invalid object key');
     }
 
-    const owner = await oneUser(openKey.userid);
-    const maxVideoUploadSizeMB = getMaxVideoUploadSizeMB(uiConfig);
-
     for (const a of attachments) {
       if (a.mimetype) {
         validateContentType(a.mimetype);
-        if (isVideoContentType(a.mimetype) && canAlwaysUploadVideo(owner?.role)) {
-          continue;
-        }
-        validateFileSize(a.size, a.mimetype, maxVideoUploadSizeMB);
+        validateFileSize(a.size, a.mimetype, uploadPolicy.maxVideoUploadSizeMB);
       }
     }
 
@@ -1163,11 +1115,11 @@ router.post(
           key: a.originalKey,
         }) === 'video'
     );
-    if (hasVideo && !canAlwaysUploadVideo(owner?.role) && !canRegularUserUploadVideo(uiConfig)) {
-      return c.json(
-        createResponse(null, 'Video upload is currently disabled for regular users'),
-        403
-      );
+    if (hasVideo && !openKey.permissions.includes('UPLOADVIDEO')) {
+      return c.json(createResponse(null, 'openkey_permission_required:UPLOADVIDEO'), 403);
+    }
+    if (hasVideo && !uploadPolicy.canUploadVideo) {
+      return c.json(createResponse(null, 'capability_required:attachment.video.upload'), 403);
     }
 
     const validationErrors: string[] = [];

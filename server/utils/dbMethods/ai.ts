@@ -29,6 +29,7 @@ import {
   type RetrievalSnippet,
   type SearchRotesProbeResult,
 } from '../ai/retrievalPlan';
+import { hasCapability } from '../../authz/capabilityService';
 import { getConfig, getGlobalConfig, setConfig } from '../config';
 import db from '../drizzle';
 import { logAiTokenUsage } from './aiToken';
@@ -92,7 +93,7 @@ export async function isAiEligibleUser(userId: string): Promise<boolean> {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
-  return user?.emailVerified === true;
+  return user?.emailVerified === true && (await hasCapability(userId, 'ai.memory.search'));
 }
 
 export async function getOwnerAiMemoryStats(ownerId: string): Promise<{

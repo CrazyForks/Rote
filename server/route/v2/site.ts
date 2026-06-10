@@ -179,7 +179,6 @@ siteRouter.get('/status', async (c: HonoContext) => {
       ui: {
         allowRegistration: uiConfig?.allowRegistration ?? true,
         allowUploadFile: uiConfig?.allowUploadFile ?? true,
-        allowUserVideoUpload: uiConfig?.allowUserVideoUpload ?? false,
         maxVideoUploadSizeMB: uiConfig?.maxVideoUploadSizeMB ?? 300,
       },
 
