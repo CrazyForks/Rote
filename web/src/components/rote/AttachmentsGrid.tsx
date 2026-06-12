@@ -1,6 +1,11 @@
 import type { Attachment } from '@/types/main';
-import { getAttachmentMediaKind } from '@/utils/directUpload';
+import {
+  getAttachmentImagePreviewSrc,
+  getAttachmentImageThumbnailSrc,
+  getAttachmentMediaKind,
+} from '@/utils/directUpload';
 import { PhotoProvider, PhotoView } from 'react-photo-view';
+import { LivePhotoAttachmentPreview } from './LivePhotoAttachmentPreview';
 import { VideoAttachmentPreview } from './VideoAttachmentPreview';
 import 'react-photo-view/dist/react-photo-view.css';
 
@@ -34,24 +39,46 @@ export default function AttachmentsGrid({ attachments, withTimeStamp }: Attachme
           ))
         ) : (
           <PhotoProvider>
-            {sortedAttachments.map((file, index) => (
-              <PhotoView key={`files_${index}`} src={file.url}>
-                <img
-                  className={`${
-                    attachments.length % 3 === 0
-                      ? 'aspect-square w-[calc(1/3*100%-4px)]'
-                      : attachments.length % 2 === 0
-                        ? 'aspect-square w-[calc(1/2*100%-3px)]'
-                        : attachments.length === 1
-                          ? 'w-full max-w-[500px] rounded-2xl border-[0.5px]'
-                          : 'aspect-square w-[calc(1/3*100%-3px)]'
-                  } bg-foreground/3 grow object-cover`}
-                  src={`${file.compressUrl || file.url}`}
+            {sortedAttachments.map((file, index) => {
+              const isLivePhoto = getAttachmentMediaKind(file) === 'livePhoto';
+              const previewSrc = getAttachmentImagePreviewSrc(file);
+              const thumbSrc = getAttachmentImageThumbnailSrc(file);
+              const imageClassName =
+                attachments.length % 3 === 0
+                  ? 'aspect-square w-[calc(1/3*100%-4px)]'
+                  : attachments.length % 2 === 0
+                    ? 'aspect-square w-[calc(1/2*100%-3px)]'
+                    : attachments.length === 1
+                      ? 'w-full max-w-[500px] rounded-2xl border-[0.5px]'
+                      : 'aspect-square w-[calc(1/3*100%-3px)]';
+              const renderedImageClassName =
+                attachments.length === 1
+                  ? 'bg-foreground/3 block w-full object-cover'
+                  : 'bg-foreground/3 block h-full w-full object-cover';
+
+              return isLivePhoto ? (
+                <LivePhotoAttachmentPreview
+                  key={`files_${index}`}
+                  attachment={file}
+                  className={imageClassName}
+                  imageClassName={renderedImageClassName}
+                  previewSrc={previewSrc}
+                  thumbnailSrc={thumbSrc}
                   crossOrigin={withTimeStamp ? 'anonymous' : undefined}
-                  alt=""
                 />
-              </PhotoView>
-            ))}
+              ) : (
+                <PhotoView key={`files_${index}`} src={previewSrc}>
+                  <div className={`${imageClassName} relative grow overflow-hidden`}>
+                    <img
+                      className={renderedImageClassName}
+                      src={thumbSrc}
+                      crossOrigin={withTimeStamp ? 'anonymous' : undefined}
+                      alt=""
+                    />
+                  </div>
+                </PhotoView>
+              );
+            })}
           </PhotoProvider>
         )}
       </div>

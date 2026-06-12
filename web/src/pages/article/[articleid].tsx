@@ -2,12 +2,14 @@ import ArticleNavBarActions from '@/components/article/ArticleNavBarActions';
 import { VerifiedIcon } from '@/components/icons/Verified';
 import NavBar from '@/components/layout/navBar';
 import LoadingPlaceholder from '@/components/others/LoadingPlaceholder';
+import PageRequestError from '@/components/others/PageRequestError';
 import UserAvatar from '@/components/others/UserAvatar';
 import { Button } from '@/components/ui/button';
 import { useArticleActions } from '@/hooks/useArticleActions';
 import ContainerWithSideBar from '@/layout/ContainerWithSideBar';
 import { profileAtom } from '@/state/profile';
 import { API_URL, get } from '@/utils/api';
+import { isNotFoundError } from '@/utils/error';
 import { useAPIGet } from '@/utils/fetcher';
 import { parseMarkdownMeta } from '@/utils/markdownParser';
 import { useAtomValue } from 'jotai';
@@ -35,17 +37,21 @@ function ArticleDetailPage() {
   const {
     data: article,
     isLoading,
+    error,
     mutate,
     isValidating,
-  } = useAPIGet<any>(articleid || '', () => get('/articles/' + articleid).then((res) => res.data), {
-    onError: (err: any) => {
-      const hasResponse = err?.response !== undefined;
-      const status = err?.response?.status;
-      if (!hasResponse || (status && status >= 400)) {
-        navigate('/404');
-      }
-    },
-  });
+  } = useAPIGet<any>(
+    articleid ? `/articles/${articleid}` : null,
+    () => get('/articles/' + articleid).then((res) => res.data),
+    {
+      revalidateOnFocus: false,
+      onError: (err: unknown) => {
+        if (isNotFoundError(err)) {
+          navigate('/404', { replace: true });
+        }
+      },
+    }
+  );
 
   const refreshData = () => {
     if (isLoading || isValidating) {
@@ -64,6 +70,28 @@ function ArticleDetailPage() {
 
   // 判断是否为作者
   const isAuthor = profile && article?.author && profile.username === article.author.username;
+
+  const hasValidArticle = Boolean(
+    article && typeof article === 'object' && article.id && typeof article.content === 'string'
+  );
+  const hasLoadFailure = Boolean(
+    (error && !hasValidArticle) || (!isLoading && !error && !hasValidArticle)
+  );
+
+  if (hasLoadFailure) {
+    if (isNotFoundError(error)) {
+      return null;
+    }
+
+    return (
+      <PageRequestError
+        error={error}
+        onRetry={() => {
+          void mutate();
+        }}
+      />
+    );
+  }
 
   const SideBar = () =>
     isLoading ? (

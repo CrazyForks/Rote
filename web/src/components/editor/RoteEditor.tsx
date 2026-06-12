@@ -12,7 +12,7 @@ import {
 } from '@/utils/directUpload';
 // 压缩与并发工具
 import { useSiteStatus } from '@/hooks/useSiteStatus';
-import { useAuthState } from '@/state/profile';
+import { usePermissions } from '@/hooks/usePermissions';
 
 import { getAttachmentMediaKind } from '@/utils/directUpload';
 import { generateVideoPoster } from '@/utils/generateVideoPoster';
@@ -58,13 +58,13 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
   const [uploadProgress, setUploadProgress] = useState<Map<File, number>>(new Map());
   const [rote, setRote] = useAtom(roteAtom);
   const { data: siteStatus } = useSiteStatus();
-  const { profile } = useAuthState();
+  const { capabilities } = usePermissions();
   const roteMaxLetter = siteStatus?.frontendConfig?.roteMaxLetter;
   const canUpload =
-    !!siteStatus?.storage?.r2Configured && siteStatus?.ui?.allowUploadFile !== false;
-  const canAlwaysUploadVideo = profile?.role === 'admin' || profile?.role === 'super_admin';
-  const canUploadVideo =
-    canUpload && (canAlwaysUploadVideo || siteStatus?.ui?.allowUserVideoUpload === true);
+    !!siteStatus?.storage?.r2Configured &&
+    siteStatus?.ui?.allowUploadFile !== false &&
+    capabilities?.['attachment.upload'].allowed === true;
+  const canUploadVideo = canUpload && capabilities?.['attachment.video.upload'].allowed === true;
   const maxVideoUploadSizeMB =
     siteStatus?.ui?.maxVideoUploadSizeMB || DEFAULT_MAX_VIDEO_UPLOAD_SIZE_MB;
   const maxVideoUploadSizeBytes = maxVideoUploadSizeMB * 1024 * 1024;
@@ -77,7 +77,9 @@ function RoteEditor({ roteAtom, callback }: { roteAtom: RoteAtomType; callback?:
     [rote.attachments]
   );
   const hasVideoAttachment = attachmentMediaKinds.includes('video');
-  const imageAttachmentCount = attachmentMediaKinds.filter((kind) => kind === 'image').length;
+  const imageAttachmentCount = attachmentMediaKinds.filter(
+    (kind) => kind === 'image' || kind === 'livePhoto'
+  ).length;
   const canAddMoreAttachments = !hasVideoAttachment && imageAttachmentCount < 9;
   const uploadAccept = hasVideoAttachment
     ? VIDEO_ACCEPT

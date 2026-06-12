@@ -1,6 +1,11 @@
 import type { Attachment } from '@/types/main';
+import { LivePhotoAttachmentPreview } from '@/components/rote/LivePhotoAttachmentPreview';
 import { VideoAttachmentPreview } from '@/components/rote/VideoAttachmentPreview';
-import { getAttachmentMediaKind } from '@/utils/directUpload';
+import {
+  getAttachmentImagePreviewSrc,
+  getAttachmentImageThumbnailSrc,
+  getAttachmentMediaKind,
+} from '@/utils/directUpload';
 import { generateVideoPoster } from '@/utils/generateVideoPoster';
 import { X } from 'lucide-react';
 import { PhotoView } from 'react-photo-view';
@@ -22,6 +27,7 @@ function AttachmentItem({
   onDelete,
 }: AttachmentItemProps) {
   const mediaKind = getAttachmentMediaKind(attachment);
+  const isLivePhoto = mediaKind === 'livePhoto';
   const [localPosterSrc, setLocalPosterSrc] = useState<string | null>(null);
   const objectUrl = useMemo(
     () => (attachment instanceof File ? URL.createObjectURL(attachment) : null),
@@ -57,8 +63,14 @@ function AttachmentItem({
     mediaKind === 'video'
       ? localPosterSrc || (!(attachment instanceof File) ? attachment.posterUrl || '' : '')
       : objectUrl ||
-        (!(attachment instanceof File) ? attachment.compressUrl || attachment.url : '');
-  const previewSrc = objectUrl || (!(attachment instanceof File) ? attachment.url : '');
+        (!(attachment instanceof File) ? getAttachmentImageThumbnailSrc(attachment) : '');
+  const previewSrc =
+    objectUrl ||
+    (!(attachment instanceof File)
+      ? mediaKind === 'video'
+        ? attachment.url
+        : getAttachmentImagePreviewSrc(attachment)
+      : '');
   const progressValue =
     typeof uploadProgress === 'number' ? Math.max(0, Math.min(100, uploadProgress)) : 0;
 
@@ -100,15 +112,26 @@ function AttachmentItem({
             </>
           )}
         </>
+      ) : isLivePhoto && !(attachment instanceof File) ? (
+        <LivePhotoAttachmentPreview
+          attachment={attachment}
+          className="relative h-full w-full"
+          imageClassName={`h-full w-full object-cover ${isUploading ? 'opacity-80' : ''}`}
+          badgeClassName="bottom-1.5 left-1.5"
+          previewSrc={previewSrc}
+          thumbnailSrc={thumbSrc}
+        />
       ) : (
         <PhotoView src={previewSrc}>
-          <img
-            className={`h-full w-full object-cover ${isUploading ? 'opacity-80' : ''}`}
-            height={80}
-            width={80}
-            src={thumbSrc}
-            alt="uploaded"
-          />
+          <div className="relative h-full w-full">
+            <img
+              className={`h-full w-full object-cover ${isUploading ? 'opacity-80' : ''}`}
+              height={80}
+              width={80}
+              src={thumbSrc}
+              alt="uploaded"
+            />
+          </div>
         </PhotoView>
       )}
 

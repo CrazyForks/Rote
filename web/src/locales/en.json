@@ -4,11 +4,7 @@
       "poem": "",
       "headingBefore": "A note repository like",
       "headingAfter": " 🤔",
-      "linksItems": [
-        "Login",
-        "",
-        "GitHub"
-      ],
+      "linksItems": ["Login", "", "GitHub"],
       "dashboard": "Dashboard",
       "star": "Stars",
       "fork": "Forks",
@@ -169,6 +165,16 @@
         "login": "Login",
         "logout": "Logout"
       },
+      "aiStatus": {
+        "site": "Site / cloud AI",
+        "local": "Local model",
+        "personal": "My model/API",
+        "personalLocal": "My local model",
+        "personalRemote": "My remote API",
+        "disabled": "AI disabled",
+        "noModel": "No model configured",
+        "configure": "Configure AI"
+      },
       "messages": {
         "loggingOut": "Logging out...",
         "logoutSuccess": "Logout successful",
@@ -180,8 +186,13 @@
       }
     },
     "error": {
-      "pageNotFound": "Page not found or an error occurred",
+      "pageNotFound": "Page not found",
       "pageNotFoundDesc": "Sorry, we couldn't find the page you were looking for",
+      "pageError": "Something went wrong",
+      "pageErrorDesc": "An unexpected error occurred while loading this page. Please try again.",
+      "loadFailed": "Failed to load content",
+      "loadFailedDesc": "Content is temporarily unavailable. Check your connection and try again.",
+      "retry": "Retry",
       "back": "Back",
       "goHome": "Go home"
     },
@@ -441,6 +452,22 @@
       "send": "Send",
       "clear": "Clear chat",
       "backToBottom": "Back to bottom",
+      "model": {
+        "title": "Model source",
+        "site": "Site model",
+        "local": "Local model",
+        "localDescription": "Local model requests only travel between this device and the local bridge.",
+        "bridgeUrl": "Local bridge URL",
+        "modelName": "Model name",
+        "token": "Local bridge token",
+        "test": "Test local connection",
+        "testing": "Testing...",
+        "connected": "Local model connected",
+        "connectionFailed": "Local model connection failed: {{error}}",
+        "toolsReady": "Local model with Rote tools",
+        "chatOnly": "Local model, chat only",
+        "localIncomplete": "Complete the local model connection settings"
+      },
       "saveAsArticle": "Save as article",
       "saved": "Saved",
       "savedArticleTitle": "AI Memory Answer",
@@ -454,9 +481,14 @@
         "exportPdf": "Print / Save PDF",
         "exporting": "Exporting...",
         "exportSuccess": "Image downloaded",
+        "exportSplitSuccess": "Content is long, downloaded as {{count}} images",
         "exportFailed": "Export failed"
       },
       "inputPlaceholder": "Ask your Rote...",
+      "thinkingToggle": {
+        "on": "Thinking is on",
+        "off": "Thinking is off"
+      },
       "empty": {
         "title": "Ask Rote",
         "desc": "Find context from your notes and articles."
@@ -476,9 +508,83 @@
       "status": {
         "title": "AI Status",
         "checking": "Checking...",
-        "ready": "Ready",
+        "ready": "Configuration ready",
+        "chatReady": "Chat model configured",
         "unverified": "Verify your email to use AI",
-        "unavailable": "AI or vector index is not available"
+        "permissionDenied": "This account does not have permission to use site cloud AI chat",
+        "unavailable": "AI or vector index is not available",
+        "memoryUnavailable": "The chat model is configured, but AI memory still needs vector indexing"
+      },
+      "model": {
+        "source": "Model source",
+        "model": "Current model",
+        "site": "Site / cloud AI",
+        "local": "Local model",
+        "personal": "My model/API",
+        "personalLocal": "My local model",
+        "personalRemote": "My remote API",
+        "disabled": "Disabled",
+        "noModel": "Not configured"
+      },
+      "personal": {
+        "title": "Personal AI settings",
+        "description": "Choose the site model or your own OpenAI-compatible model/API for AI memory answers.",
+        "openSettings": "Personal AI settings",
+        "siteMode": "Site AI",
+        "siteModeDesc": "Use the admin-configured model and vector index.",
+        "personalMode": "My model/API",
+        "personalModeDesc": "Use one OpenAI-compatible Base URL, either local llama.cpp/Ollama or a remote API.",
+        "enablePersonal": "Enable my model/API",
+        "enablePersonalDesc": "Base URL, model, and API key stay in this browser only.",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "http://127.0.0.1:8080/v1 or https://api.openai.com/v1",
+        "model": "Model",
+        "modelPlaceholder": "gemma-4-12b-it or gpt-4.1-mini",
+        "apiKey": "API Key (optional)",
+        "personalUnavailable": "Enable and fill in your model/API in Personal AI settings first",
+        "personalPrivacy": "In personal mode, this browser calls your configured model/API directly. The Base URL, model, and key are not sent to the Rote backend or saved to server settings.",
+        "personalProxyNote": "API tests and AI answers both call this Base URL directly from the current browser. The Rote backend only executes memory tools when the model requests tool calls. If a cloud API does not allow browser CORS, use a local bridge.",
+        "probeChecking": "Checking",
+        "probeReady": "Configuration ready",
+        "probePartial": "Partly ready",
+        "probeConfigured": "Configured",
+        "probeMissing": "Not ready",
+        "siteProbeChecking": "Reading the site AI status.",
+        "siteProbeReady": "Site AI chat is ready. AI memory availability depends on the vector index status.",
+        "siteProbePartial": "The site chat model and permission are configured, but account eligibility is not ready.",
+        "siteProbeMissing": "Site AI is not available yet. Use a personal model or contact an admin.",
+        "personalProbeReady": "The model/API is enabled. You can test it; answers will use this configuration.",
+        "personalProbeDisabled": "Model/API settings are filled in, so you can test the API. Turn on the switch to use it for answers.",
+        "personalProbeMissing": "Fill in the Base URL and model first.",
+        "testButton": "Test API",
+        "testToastStarting": "Preparing the API test...",
+        "testToastSite": "Testing the site AI API and tool calling...",
+        "testToastLocalChat": "Testing the chat API directly from this browser...",
+        "testToastRemoteProxy": "Testing the remote API and tool calling directly from this browser...",
+        "testToastToolCalling": "Checking tool calling...",
+        "testSuccess": "API test successful",
+        "testPartial": "Chat API works, but tool calling was not detected",
+        "testFailed": "API test failed",
+        "testLatency": "API test successful in {{ms}} ms",
+        "toolCallingSupported": "Tool calling detected. Full memory tools can be used.",
+        "toolCallingUnsupported": "Tool calling was not detected: {{reason}}",
+        "toolCallingUnknown": "The model did not return a tool call",
+        "toolCallingReasons": {
+          "noCall": "The model did not return a tool call",
+          "invalidArguments": "The model returned a tool call, but its arguments were not valid JSON",
+          "probeFailed": "Tool calling probe failed"
+        },
+        "errors": {
+          "corsBlocked": "This browser could not access the remote API directly. The cloud API probably does not allow CORS. Use a local bridge instead.",
+          "proxyIntercepted": "The local AI request was intercepted or closed by a proxy client. Add 127.0.0.1/localhost to the proxy bypass list, or switch the Base URL between 127.0.0.1 and localhost.",
+          "requestFailed": "Personal model/API request failed",
+          "invalidResponse": "The personal model/API returned an invalid chat response"
+        },
+        "siteCapability": "The site Agent works best with a model that supports tool calling for retrieval planning. Deep thinking is optional; the flow still works without reasoning output.",
+        "personalCapability": "Personal model/API mode uses the same Rote Agent. The model needs OpenAI-compatible tool calling for full memory-tool support; deep thinking/reasoning remains optional display output.",
+        "startGuideTitle": "llama.cpp start example",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideDesc": "After starting it, make sure the local server supports OpenAI-compatible /v1/chat/completions and allows browser access."
       },
       "memoryStats": {
         "title": "Memory Overview",
@@ -532,7 +638,10 @@
         "fallback": "Fallback: {{reason}}",
         "providerError": "Model tool calling failed",
         "toolError": "Retrieval tool failed",
-        "warnings": "Warnings: {{warnings}}"
+        "warnings": "Warnings: {{warnings}}",
+        "warningLabels": {
+          "semanticSearchTextFallback": "Semantic search is unavailable; text search was used"
+        }
       },
       "timeline": {
         "title": "Progress",
@@ -862,7 +971,8 @@
         "security": "Security Settings",
         "oauth": "OAuth Login",
         "ai": "AI Settings",
-        "users": "User Management"
+        "users": "User Management",
+        "permissions": "Permissions"
       },
       "dashboard": {
         "title": "Data Dashboard",
@@ -973,8 +1083,6 @@
         },
         "apiRateLimit": "API Rate Limit",
         "apiRateLimitDescription": "Maximum number of requests per second allowed per user or IP address. Used to prevent API abuse. Minimum is 10, default is 100 requests/second.",
-        "allowUserVideoUpload": "Allow Video Upload for Regular Users",
-        "allowUserVideoUploadDesc": "Video upload is an advanced feature. Administrators can always use it; this switch controls whether regular users can upload videos.",
         "maxVideoUploadSizeMB": "Video Size Limit (MB)",
         "maxVideoUploadSizeMBDesc": "Maximum upload size per video. Minimum 1MB, default 300MB."
       },
@@ -1072,7 +1180,27 @@
         "failedJobs": "Failed jobs",
         "basicSwitches": "Basic switches",
         "modelProviders": "Model providers",
-        "advancedSettings": "Advanced indexing and maintenance"
+        "advancedSettings": "Advanced indexing and maintenance",
+        "runtime": {
+          "title": "Model source",
+          "description": "Choose whether Rote uses the site / cloud model or an OpenAI-compatible local model running on this machine.",
+          "useSite": "Use site AI",
+          "useLocal": "Use local model",
+          "currentMode": "Current mode",
+          "currentModel": "Current model",
+          "currentBaseUrl": "Current Base URL",
+          "siteMode": "Site / cloud AI",
+          "localMode": "Local model",
+          "customMode": "Custom compatible API"
+        },
+        "localGuide": {
+          "title": "Start local llama.cpp",
+          "description": "Start an OpenAI-compatible server in your terminal, then save this page. Rote connects to it through the Base URL.",
+          "copy": "Copy command",
+          "copySuccess": "Command copied",
+          "copyFailed": "Failed to copy",
+          "embeddingNote": "AI memory also needs an embedding model. pgvector HNSW indexes require 2000 dimensions or fewer; if local embeddings return more dimensions, keep vector memory off or use a lower-dimensional embedding model."
+        }
       },
       "users": {
         "title": "User Management",
@@ -1100,6 +1228,7 @@
           "verified": "Verified",
           "unverified": "Unverified",
           "homepage": "Homepage",
+          "permissions": "Configure Permissions",
           "verifyEmail": "Verify Email",
           "unverifyEmail": "Cancel Verification",
           "delete": "Delete"
@@ -1115,6 +1244,61 @@
           "cancel": "Cancel",
           "confirm": "Confirm Delete",
           "deleting": "Deleting..."
+        }
+      },
+      "permissions": {
+        "title": "Permissions",
+        "description": "Control role defaults and apply overrides for individual users.",
+        "readOnlyDescription": "Administrators can view permissions. Only super administrators can make changes.",
+        "saveRole": "Save Role",
+        "saveSuccess": "Role permissions saved",
+        "saveFailed": "Failed to save role permissions: {{error}}",
+        "unknownError": "Unknown error",
+        "effects": {
+          "inherit": "Inherit Role",
+          "allow": "Allow",
+          "deny": "Deny"
+        },
+        "effective": {
+          "allowed": "Currently Allowed",
+          "denied": "Currently Denied",
+          "dependencyDenied": "A required permission is denied, so this permission is not effective."
+        },
+        "roles": {
+          "user": {
+            "label": "User",
+            "description": "Default permissions inherited by newly registered users."
+          },
+          "moderator": {
+            "label": "Moderator",
+            "description": "Default permissions inherited by moderators."
+          },
+          "admin": {
+            "label": "Administrator",
+            "description": "Default permissions inherited by administrators."
+          }
+        },
+        "capabilities": {
+          "attachment.upload": {
+            "label": "Upload Attachments",
+            "description": "Allow images, documents, and other non-video attachments."
+          },
+          "attachment.video.upload": {
+            "label": "Upload Videos",
+            "description": "Allow video uploads; this requires attachment upload permission."
+          },
+          "ai.site.chat": {
+            "label": "Site Cloud AI Chat",
+            "description": "Allow the cloud chat model configured by the site."
+          }
+        },
+        "userDialog": {
+          "title": "Permissions for {{username}}",
+          "description": "User overrides take precedence over role defaults. Select inherit to remove an override.",
+          "close": "Close",
+          "save": "Save",
+          "saveSuccess": "User permissions saved",
+          "saveFailed": "Failed to save user permissions: {{error}}"
         }
       },
       "save": "Save",
@@ -1183,6 +1367,7 @@
       "saveSuccess": "Save successful",
       "saveFailed": "Save failed",
       "minimumPermission": "At least one permission is required",
+      "permissionUnavailable": "(not available for this account)",
       "permissions": {
         "SENDROTE": "Create Rote",
         "GETROTE": "Get Rote",
@@ -1192,6 +1377,7 @@
         "GETARTICLE": "Get Articles",
         "EDITARTICLE": "Edit Article (Including Delete)",
         "UPLOADATTACHMENT": "Upload Attachment",
+        "UPLOADVIDEO": "Upload Video",
         "DELETEATTACHMENT": "Delete Attachment",
         "ADDREACTION": "Add Reaction",
         "DELETEREACTION": "Delete Reaction",
@@ -1279,6 +1465,7 @@
       "exportImage": "Export Image",
       "exporting": "Exporting...",
       "exportSuccess": "Image downloaded",
+      "exportSplitSuccess": "Content is long, downloaded as {{count}} images",
       "exportFailed": "Export failed"
     },
     "roteList": {
@@ -1304,6 +1491,13 @@
     },
     "verifiedIcon": {
       "tooltip": "Verified Email"
+    },
+    "attachments": {
+      "livePhoto": {
+        "badge": "LIVE",
+        "open": "Open Live Photo",
+        "videoLabel": "Live Photo video"
+      }
     }
   },
   "article": {
@@ -1361,6 +1555,9 @@
       "exportImage": "Export Image",
       "exporting": "Exporting...",
       "exportSuccess": "Image downloaded",
+      "exportSplitSuccess": "Content is long, downloaded as {{count}} images",
+      "exportPdfSuccess": "PDF print dialog opened",
+      "longPressExportPdf": "Long press to export PDF",
       "exportFailed": "Export failed"
     },
     "selection": {

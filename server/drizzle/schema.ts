@@ -74,6 +74,53 @@ export const userSettings = pgTable(
   })
 );
 
+export const rolePermissionPolicies = pgTable(
+  'role_permission_policies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    role: varchar('role', { length: 50 }).notNull(),
+    permission: varchar('permission', { length: 100 }).notNull(),
+    effect: varchar('effect', { length: 10 }).notNull(),
+    createdAt: timestamp('createdAt', { withTimezone: true, precision: 6 }).notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt', { withTimezone: true, precision: 6 }).notNull().defaultNow(),
+  },
+  (table) => ({
+    roleIdx: index('role_permission_policies_role_idx').on(table.role),
+    uniqueRolePermission: unique('unique_role_permission').on(table.role, table.permission),
+  })
+);
+
+export const userPermissionOverrides = pgTable(
+  'user_permission_overrides',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userid: uuid('userid').notNull(),
+    permission: varchar('permission', { length: 100 }).notNull(),
+    effect: varchar('effect', { length: 10 }).notNull(),
+    expiresAt: timestamp('expiresAt', { withTimezone: true, precision: 6 }),
+    reason: text('reason'),
+    updatedBy: uuid('updatedBy'),
+    createdAt: timestamp('createdAt', { withTimezone: true, precision: 6 }).notNull().defaultNow(),
+    updatedAt: timestamp('updatedAt', { withTimezone: true, precision: 6 }).notNull().defaultNow(),
+  },
+  (table) => ({
+    useridIdx: index('user_permission_overrides_userid_idx').on(table.userid),
+    uniqueUserPermission: unique('unique_user_permission').on(table.userid, table.permission),
+    useridFk: foreignKey({
+      columns: [table.userid],
+      foreignColumns: [users.id],
+    })
+      .onDelete('cascade')
+      .onUpdate('cascade'),
+    updatedByFk: foreignKey({
+      columns: [table.updatedBy],
+      foreignColumns: [users.id],
+    })
+      .onDelete('set null')
+      .onUpdate('cascade'),
+  })
+);
+
 // User Open Keys 表
 export const userOpenKeys = pgTable(
   'user_open_keys',
@@ -530,6 +577,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   userswsubscription: many(userSwSubscriptions),
   oauthBindings: many(userOAuthBindings),
   passkeys: many(userPasskeys),
+  permissionOverrides: many(userPermissionOverrides),
   documentEmbeddings: many(documentEmbeddings),
   embeddingJobs: many(embeddingJobs),
 }));
@@ -537,6 +585,17 @@ export const usersRelations = relations(users, ({ one, many }) => ({
 export const userSettingsRelations = relations(userSettings, ({ one }) => ({
   user: one(users, {
     fields: [userSettings.userid],
+    references: [users.id],
+  }),
+}));
+
+export const userPermissionOverridesRelations = relations(userPermissionOverrides, ({ one }) => ({
+  user: one(users, {
+    fields: [userPermissionOverrides.userid],
+    references: [users.id],
+  }),
+  updatedByUser: one(users, {
+    fields: [userPermissionOverrides.updatedBy],
     references: [users.id],
   }),
 }));

@@ -155,6 +155,16 @@
         "login": "登录",
         "logout": "登出"
       },
+      "aiStatus": {
+        "site": "站内 / 云端 AI",
+        "local": "本地大模型",
+        "personal": "我的模型/API",
+        "personalLocal": "我的本地大模型",
+        "personalRemote": "我的远程 API",
+        "disabled": "AI 未启用",
+        "noModel": "未配置模型",
+        "configure": "配置 AI"
+      },
       "messages": {
         "loggingOut": "退出登录中...",
         "logoutSuccess": "已退出登录",
@@ -166,8 +176,13 @@
       }
     },
     "error": {
-      "pageNotFound": "页面未找到或发生错误",
+      "pageNotFound": "页面未找到",
       "pageNotFoundDesc": "抱歉，我们无法找到您要访问的页面",
+      "pageError": "页面发生错误",
+      "pageErrorDesc": "页面加载时出现了意外错误，请重试。",
+      "loadFailed": "内容加载失败",
+      "loadFailedDesc": "暂时无法获取内容，请检查网络后重试。",
+      "retry": "重试",
       "back": "返回",
       "goHome": "回到首页"
     },
@@ -427,6 +442,22 @@
       "send": "发送",
       "clear": "清空对话",
       "backToBottom": "回到底部",
+      "model": {
+        "title": "模型来源",
+        "site": "站点模型",
+        "local": "本地模型",
+        "localDescription": "本地模型请求只在当前设备与本地桥接器之间传输。",
+        "bridgeUrl": "本地桥接器地址",
+        "modelName": "模型名称",
+        "token": "本地桥接器 Token",
+        "test": "测试本地连接",
+        "testing": "测试中...",
+        "connected": "本地模型连接成功",
+        "connectionFailed": "本地模型连接失败：{{error}}",
+        "toolsReady": "本地模型，可读取 Rote",
+        "chatOnly": "本地模型，仅普通对话",
+        "localIncomplete": "请完成本地模型连接配置"
+      },
       "saveAsArticle": "保存为文章",
       "saved": "已保存",
       "savedArticleTitle": "AI 记忆回答",
@@ -440,9 +471,14 @@
         "exportPdf": "打印 / 导出 PDF",
         "exporting": "生成中...",
         "exportSuccess": "图片已下载",
+        "exportSplitSuccess": "内容较长，已拆分为 {{count}} 张图片下载",
         "exportFailed": "导出失败"
       },
       "inputPlaceholder": "问问你的 Rote...",
+      "thinkingToggle": {
+        "on": "思考已开启",
+        "off": "思考已关闭"
+      },
       "empty": {
         "title": "问 Rote",
         "desc": "从你的笔记和文章里找上下文。"
@@ -462,9 +498,83 @@
       "status": {
         "title": "AI 状态",
         "checking": "检测中...",
-        "ready": "已就绪",
+        "ready": "配置已就绪",
+        "chatReady": "对话模型已配置",
         "unverified": "验证邮箱后可使用 AI",
-        "unavailable": "AI 或向量索引暂不可用"
+        "permissionDenied": "当前账号没有站内云端 AI 对话权限",
+        "unavailable": "AI 或向量索引暂不可用",
+        "memoryUnavailable": "对话模型已配置，AI 记忆还需要启用向量索引"
+      },
+      "model": {
+        "source": "模型来源",
+        "model": "当前模型",
+        "site": "站内 / 云端 AI",
+        "local": "本地大模型",
+        "personal": "我的模型/API",
+        "personalLocal": "我的本地大模型",
+        "personalRemote": "我的远程 API",
+        "disabled": "未启用",
+        "noModel": "未配置"
+      },
+      "personal": {
+        "title": "个人 AI 设置",
+        "description": "选择这次 AI 记忆问答使用站点模型，或使用你自己的 OpenAI-compatible 模型/API。",
+        "openSettings": "个人 AI 设置",
+        "siteMode": "站点 AI",
+        "siteModeDesc": "使用管理员在后台配置的模型和向量索引。",
+        "personalMode": "我的模型/API",
+        "personalModeDesc": "填写一个 OpenAI-compatible Base URL，可指向本机 llama.cpp/Ollama，也可指向远程 API。",
+        "enablePersonal": "启用我的模型/API",
+        "enablePersonalDesc": "Base URL、模型名和 API Key 只保存在当前浏览器。",
+        "baseUrl": "Base URL",
+        "baseUrlPlaceholder": "http://127.0.0.1:8080/v1 或 https://api.openai.com/v1",
+        "model": "模型",
+        "modelPlaceholder": "gemma-4-12b-it 或 gpt-4.1-mini",
+        "apiKey": "API Key（可选）",
+        "personalUnavailable": "请先在个人 AI 设置中启用并填写模型/API",
+        "personalPrivacy": "个人模式下，浏览器会直接调用你配置的模型/API；Base URL、模型名和 Key 不会发送给 Rote 后端或保存到服务器配置。",
+        "personalProxyNote": "测试和实际 AI 问答都会从当前浏览器直连该 Base URL。Rote 后端只在模型请求工具调用时执行记忆工具；如果云端 API 不支持浏览器 CORS，请使用本地桥接器转发。",
+        "probeChecking": "检查中",
+        "probeReady": "配置就绪",
+        "probePartial": "部分可用",
+        "probeConfigured": "已配置",
+        "probeMissing": "未就绪",
+        "siteProbeChecking": "正在读取站内 AI 状态。",
+        "siteProbeReady": "站内 AI 对话已就绪；AI 记忆是否可用取决于向量索引状态。",
+        "siteProbePartial": "站内对话模型和权限已配置，但账号资格还未就绪。",
+        "siteProbeMissing": "站内 AI 还不可用，请使用个人模型或联系管理员。",
+        "personalProbeReady": "模型/API 已启用；可测试接口，回答时会使用该配置。",
+        "personalProbeDisabled": "模型/API 配置已填写，可以测试接口；打开开关后才会用于回答。",
+        "personalProbeMissing": "请先填写 Base URL 与模型名。",
+        "testButton": "测试接口",
+        "testToastStarting": "正在准备接口测试...",
+        "testToastSite": "正在测试站点 AI 接口与 tool calling...",
+        "testToastLocalChat": "正在从浏览器直连测试聊天接口...",
+        "testToastRemoteProxy": "正在从浏览器直连测试远程 API 与 tool calling...",
+        "testToastToolCalling": "正在检测 tool calling...",
+        "testSuccess": "接口测试成功",
+        "testPartial": "对话接口可用，但未检测到 tool calling",
+        "testFailed": "接口测试失败",
+        "testLatency": "接口测试成功，耗时 {{ms}} ms",
+        "toolCallingSupported": "已检测到 tool calling，可使用完整记忆工具。",
+        "toolCallingUnsupported": "未检测到 tool calling：{{reason}}",
+        "toolCallingUnknown": "模型没有返回 tool call",
+        "toolCallingReasons": {
+          "noCall": "模型没有返回 tool call",
+          "invalidArguments": "模型返回了 tool call，但参数不是有效 JSON",
+          "probeFailed": "tool calling 探测失败"
+        },
+        "errors": {
+          "corsBlocked": "浏览器无法直接访问该远程 API，通常是云端 API 未开放 CORS。请改用本地桥接器转发。",
+          "proxyIntercepted": "本地 AI 请求被代理客户端拦截或关闭。请将 127.0.0.1/localhost 加入代理绕过列表，或在 Base URL 中切换 127.0.0.1 与 localhost。",
+          "requestFailed": "个人模型/API 请求失败",
+          "invalidResponse": "个人模型/API 返回了无效的聊天响应"
+        },
+        "siteCapability": "站内 Agent 为了自动规划检索，推荐使用支持 tool calling 的模型；深度思考不是必需能力，没有 reasoning 输出也能工作。",
+        "personalCapability": "个人模型/API 使用同一套 Rote Agent。模型需要支持 OpenAI-compatible tool calling 才能完整使用记忆工具；深度思考/reasoning 仍是可选展示。",
+        "startGuideTitle": "llama.cpp 启动示例",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideDesc": "启动后确认本地服务支持 OpenAI-compatible /v1/chat/completions，并允许浏览器访问。"
       },
       "memoryStats": {
         "title": "记忆概览",
@@ -518,7 +628,10 @@
         "fallback": "降级原因：{{reason}}",
         "providerError": "模型工具调用失败",
         "toolError": "检索工具失败",
-        "warnings": "提示：{{warnings}}"
+        "warnings": "提示：{{warnings}}",
+        "warningLabels": {
+          "semanticSearchTextFallback": "语义检索不可用，已使用文本搜索"
+        }
       },
       "timeline": {
         "title": "进度",
@@ -848,7 +961,8 @@
         "security": "安全设置",
         "oauth": "OAuth 登录",
         "ai": "AI 相关",
-        "users": "用户管理"
+        "users": "用户管理",
+        "permissions": "权限管理"
       },
       "dashboard": {
         "title": "数据看板",
@@ -959,8 +1073,6 @@
         },
         "apiRateLimit": "API 速率限制",
         "apiRateLimitDescription": "每个用户或 IP 地址每秒允许的最大请求数。用于防止 API 滥用。最小值为 10，默认值为 100 请求/秒。",
-        "allowUserVideoUpload": "向普通用户开放视频上传",
-        "allowUserVideoUploadDesc": "视频上传属于高级功能。管理员始终可用，此开关决定普通用户是否可以上传视频。",
         "maxVideoUploadSizeMB": "视频大小上限（MB）",
         "maxVideoUploadSizeMBDesc": "单个视频允许上传的最大大小，最小值为 1MB，默认值为 300MB。"
       },
@@ -1058,7 +1170,27 @@
         "failedJobs": "失败任务",
         "basicSwitches": "基础开关",
         "modelProviders": "模型供应商",
-        "advancedSettings": "高级索引与维护"
+        "advancedSettings": "高级索引与维护",
+        "runtime": {
+          "title": "模型来源",
+          "description": "选择 Rote 使用站内 / 云端模型，还是连接运行在这台机器上的 OpenAI 兼容本地大模型。",
+          "useSite": "使用站内 AI",
+          "useLocal": "使用本地大模型",
+          "currentMode": "当前模式",
+          "currentModel": "当前模型",
+          "currentBaseUrl": "当前 Base URL",
+          "siteMode": "站内 / 云端 AI",
+          "localMode": "本地大模型",
+          "customMode": "自定义兼容接口"
+        },
+        "localGuide": {
+          "title": "启动本地 llama.cpp",
+          "description": "先在终端启动 OpenAI 兼容服务，再保存本页配置。Rote 会通过 Base URL 连接它。",
+          "copy": "复制命令",
+          "copySuccess": "命令已复制",
+          "copyFailed": "复制失败",
+          "embeddingNote": "AI 记忆还需要 embedding 模型。pgvector HNSW 索引要求维度不超过 2000；如果本地 embedding 返回更高维度，请先关闭向量记忆或换用较低维度的 embedding 模型。"
+        }
       },
       "users": {
         "title": "用户管理",
@@ -1086,6 +1218,7 @@
           "verified": "已验证",
           "unverified": "未验证",
           "homepage": "主页",
+          "permissions": "配置权限",
           "verifyEmail": "验证邮箱",
           "unverifyEmail": "取消验证",
           "delete": "删除"
@@ -1101,6 +1234,61 @@
           "cancel": "取消",
           "confirm": "确认删除",
           "deleting": "删除中..."
+        }
+      },
+      "permissions": {
+        "title": "权限管理",
+        "description": "分别控制角色默认权限，并为单个用户设置覆盖规则。",
+        "readOnlyDescription": "管理员可以查看权限配置，只有超级管理员可以修改。",
+        "saveRole": "保存角色",
+        "saveSuccess": "角色权限已保存",
+        "saveFailed": "保存角色权限失败：{{error}}",
+        "unknownError": "未知错误",
+        "effects": {
+          "inherit": "继承角色",
+          "allow": "允许",
+          "deny": "拒绝"
+        },
+        "effective": {
+          "allowed": "当前允许",
+          "denied": "当前拒绝",
+          "dependencyDenied": "依赖的权限被拒绝，因此当前权限不会生效。"
+        },
+        "roles": {
+          "user": {
+            "label": "普通用户",
+            "description": "新注册普通用户默认继承这些权限。"
+          },
+          "moderator": {
+            "label": "版主",
+            "description": "版主默认继承这些权限。"
+          },
+          "admin": {
+            "label": "管理员",
+            "description": "管理员默认继承这些权限。"
+          }
+        },
+        "capabilities": {
+          "attachment.upload": {
+            "label": "上传附件",
+            "description": "允许上传图片、文档和其他非视频附件。"
+          },
+          "attachment.video.upload": {
+            "label": "上传视频",
+            "description": "允许上传视频；该权限依赖上传附件权限。"
+          },
+          "ai.site.chat": {
+            "label": "站内云端 AI 对话",
+            "description": "允许使用站点配置的云端对话模型。"
+          }
+        },
+        "userDialog": {
+          "title": "{{username}} 的权限",
+          "description": "用户覆盖规则优先于角色默认权限；选择继承可移除覆盖规则。",
+          "close": "关闭",
+          "save": "保存",
+          "saveSuccess": "用户权限已保存",
+          "saveFailed": "保存用户权限失败：{{error}}"
         }
       },
       "save": "保存",
@@ -1169,6 +1357,7 @@
       "saveSuccess": "保存成功",
       "saveFailed": "保存失败",
       "minimumPermission": "至少需要一个权限",
+      "permissionUnavailable": "（当前账号不可用）",
       "permissions": {
         "SENDROTE": "创建Rote",
         "GETROTE": "获取Rote",
@@ -1178,6 +1367,7 @@
         "GETARTICLE": "获取文章",
         "EDITARTICLE": "编辑文章（包括删除）",
         "UPLOADATTACHMENT": "上传附件",
+        "UPLOADVIDEO": "上传视频",
         "DELETEATTACHMENT": "删除附件",
         "ADDREACTION": "添加反应",
         "DELETEREACTION": "删除反应",
@@ -1265,6 +1455,7 @@
       "exportImage": "导出图片",
       "exporting": "导出中...",
       "exportSuccess": "图片已下载",
+      "exportSplitSuccess": "内容较长，已拆分为 {{count}} 张图片下载",
       "exportFailed": "导出失败"
     },
     "roteList": {
@@ -1290,6 +1481,13 @@
     },
     "verifiedIcon": {
       "tooltip": "已验证邮箱"
+    },
+    "attachments": {
+      "livePhoto": {
+        "badge": "LIVE",
+        "open": "打开 Live Photo",
+        "videoLabel": "Live Photo 视频"
+      }
     }
   },
   "article": {
@@ -1347,6 +1545,9 @@
       "exportImage": "导出图片",
       "exporting": "导出中...",
       "exportSuccess": "图片已下载",
+      "exportSplitSuccess": "内容较长，已拆分为 {{count}} 张图片下载",
+      "exportPdfSuccess": "已打开 PDF 打印窗口",
+      "longPressExportPdf": "长按导出 PDF",
       "exportFailed": "导出失败"
     },
     "selection": {

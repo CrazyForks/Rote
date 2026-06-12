@@ -36,6 +36,7 @@ import {
   Ellipsis,
   ExternalLink,
   Loader,
+  KeyRound,
   Search,
   Trash2,
   X,
@@ -44,6 +45,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import useSWR from 'swr';
+import UserPermissionsDialog from './UserPermissionsDialog';
 
 interface User {
   id: string;
@@ -82,6 +84,7 @@ export default function UsersTab() {
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [verifyingUserId, setVerifyingUserId] = useState<string | null>(null);
+  const [permissionUser, setPermissionUser] = useState<User | null>(null);
 
   const isSuperAdmin = profile?.role === 'super_admin';
 
@@ -314,6 +317,10 @@ export default function UsersTab() {
                               <ExternalLink className="mr-2 size-4" />
                               {t('table.homepage')}
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPermissionUser(user)}>
+                              <KeyRound className="mr-2 size-4" />
+                              {t('table.permissions')}
+                            </DropdownMenuItem>
                             {!user.emailVerified ? (
                               <DropdownMenuItem
                                 onClick={() => handleVerifyEmail(user.id)}
@@ -417,6 +424,11 @@ export default function UsersTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <UserPermissionsDialog
+        user={permissionUser}
+        onClose={() => setPermissionUser(null)}
+        canManage={isSuperAdmin}
+      />
     </Card>
   );
 }

@@ -47,6 +47,16 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     requiresApiKey: false,
   },
   {
+    id: 'llama-cpp',
+    name: 'llama.cpp (local)',
+    apiFormat: 'openai_compatible',
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    capabilities: ['chat'],
+    chatModels: ['gemma-4-12b-it'],
+    embeddingModels: [],
+    requiresApiKey: false,
+  },
+  {
     id: 'deepseek',
     name: 'DeepSeek',
     apiFormat: 'openai_compatible',
@@ -114,16 +124,6 @@ export const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
     capabilities: ['chat', 'embedding'],
     chatModels: ['hunyuan-turbos-latest'],
     embeddingModels: ['hunyuan-embedding'],
-    requiresApiKey: true,
-  },
-  {
-    id: 'baidu-qianfan',
-    name: 'Baidu Qianfan',
-    apiFormat: 'openai_compatible',
-    baseUrl: 'https://qianfan.baidubce.com/v2',
-    capabilities: ['chat', 'embedding'],
-    chatModels: ['ernie-4.5-turbo-128k'],
-    embeddingModels: ['bge-large-zh'],
     requiresApiKey: true,
   },
   {

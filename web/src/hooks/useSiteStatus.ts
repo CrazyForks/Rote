@@ -45,7 +45,6 @@ interface SiteStatusData {
   ui: {
     allowRegistration: boolean;
     allowUploadFile: boolean;
-    allowUserVideoUpload: boolean;
     maxVideoUploadSizeMB: number;
   };
   oauth?: {
@@ -67,6 +66,8 @@ interface SiteStatusData {
     vectorEnabled: boolean;
     publicExploreVectorEnabled: boolean;
     available: boolean;
+    chatAvailable: boolean;
+    memoryAvailable: boolean;
     vectorAvailable: boolean;
     vectorInstalled: boolean;
   };
