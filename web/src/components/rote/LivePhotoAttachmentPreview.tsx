@@ -5,6 +5,11 @@ import { SunMedium } from 'lucide-react';
 import { useEffect, useState, type ComponentProps, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PhotoView } from 'react-photo-view';
+import {
+  getLivePhotoPreviewSize,
+  LivePhotoMotionViewer,
+  LivePhotoStillViewer,
+} from './LivePhotoViewer';
 
 type PhotoRenderParams = Parameters<NonNullable<ComponentProps<typeof PhotoView>['render']>>[0];
 
@@ -81,41 +86,29 @@ export function LivePhotoAttachmentPreview({
   const handleStillLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const { naturalWidth, naturalHeight } = event.currentTarget;
     if (!naturalWidth || !naturalHeight) return;
+    const nextSize = getLivePhotoPreviewSize(naturalWidth, naturalHeight);
 
     setPreviewSize((current) => {
-      if (current.width === naturalWidth && current.height === naturalHeight) {
+      if (current.width === nextSize.width && current.height === nextSize.height) {
         return current;
       }
 
-      return {
-        width: naturalWidth,
-        height: naturalHeight,
-      };
+      return nextSize;
     });
   };
 
   const renderLivePhoto = ({ attrs }: PhotoRenderParams) => {
-    const mediaProps = {
-      ...attrs,
-      className: cn('PhotoView__Photo bg-black object-contain', attrs.className),
-    };
-
     if (videoFailed) {
-      return <img {...mediaProps} src={previewSrc} alt="" draggable={false} />;
+      return <LivePhotoStillViewer attrs={attrs} previewSrc={previewSrc} />;
     }
 
     return (
-      <video
-        {...mediaProps}
-        src={playbackSrc}
-        poster={previewSrc || undefined}
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-        aria-label={t('videoLabel')}
-        onError={() => setVideoFailed(true)}
+      <LivePhotoMotionViewer
+        attrs={attrs}
+        playbackSrc={playbackSrc}
+        previewSrc={previewSrc}
+        videoLabel={t('videoLabel')}
+        onVideoError={() => setVideoFailed(true)}
       />
     );
   };
@@ -139,7 +132,7 @@ export function LivePhotoAttachmentPreview({
 
   return (
     <PhotoView
-      key={`${playbackSrc}-${previewSize.width}x${previewSize.height}`}
+      key={`${previewSrc}-${playbackSrc}-${previewSize.width}x${previewSize.height}`}
       render={renderLivePhoto}
       width={previewSize.width}
       height={previewSize.height}
