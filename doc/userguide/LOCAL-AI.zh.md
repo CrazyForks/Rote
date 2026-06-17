@@ -22,12 +22,11 @@ llama-server \
   --alias gemma-4-12b-it-local \
   --host 127.0.0.1 \
   --port 8080 \
-  --ctx-size 8192 \
   --jinja \
   -ngl 99
 ```
 
-16GB 内存设备如果出现内存压力，可以把 `--ctx-size` 调低至 `4096`。
+如果需要限制上下文或 16GB 内存设备出现内存压力，可以手动添加 `--ctx-size 4096`。
 
 ## 2. 启动本地桥接器
 

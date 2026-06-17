@@ -583,7 +583,7 @@
         "siteCapability": "The site Agent works best with a model that supports tool calling for retrieval planning. Deep thinking is optional; the flow still works without reasoning output.",
         "personalCapability": "Personal model/API mode uses the same Rote Agent. The model needs OpenAI-compatible tool calling for full memory-tool support; deep thinking/reasoning remains optional display output.",
         "startGuideTitle": "llama.cpp start example",
-        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it",
         "startGuideDesc": "After starting it, make sure the local server supports OpenAI-compatible /v1/chat/completions and allows browser access."
       },
       "memoryStats": {

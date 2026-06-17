@@ -587,7 +587,7 @@
         "siteCapability": "サイト Agent は検索計画のため、tool calling 対応モデルが最適です。深い思考は必須ではなく、reasoning 出力がなくても動作します。",
         "personalCapability": "個人モデル/API モードも同じ Rote Agent を使います。メモリーツールを完全に使うには OpenAI 互換 tool calling 対応モデルが必要です。深い思考/reasoning は任意の表示出力です。",
         "startGuideTitle": "llama.cpp 起動例",
-        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it",
         "startGuideDesc": "起動後、ローカルサーバーが OpenAI 互換の /v1/chat/completions をサポートし、ブラウザからアクセスできることを確認してください。"
       },
       "memoryStats": {

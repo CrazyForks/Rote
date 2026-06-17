@@ -573,7 +573,7 @@
         "siteCapability": "站内 Agent 为了自动规划检索，推荐使用支持 tool calling 的模型；深度思考不是必需能力，没有 reasoning 输出也能工作。",
         "personalCapability": "个人模型/API 使用同一套 Rote Agent。模型需要支持 OpenAI-compatible tool calling 才能完整使用记忆工具；深度思考/reasoning 仍是可选展示。",
         "startGuideTitle": "llama.cpp 启动示例",
-        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it --ctx-size 4096",
+        "startGuideCommand": "llama-server --hf-repo google/gemma-4-12B-it-qat-q4_0-gguf:Q4_0 --host 127.0.0.1 --port 8080 --alias gemma-4-12b-it",
         "startGuideDesc": "启动后确认本地服务支持 OpenAI-compatible /v1/chat/completions，并允许浏览器访问。"
       },
       "memoryStats": {
