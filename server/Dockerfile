@@ -1,7 +1,7 @@
 # ----------------------------------------------------
 # 阶段 1: 依赖安装 (deps)
 # ----------------------------------------------------
-FROM oven/bun:1-alpine AS deps
+FROM mirror.gcr.io/oven/bun:1-alpine AS deps
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ RUN bun install --production --frozen-lockfile
 # ----------------------------------------------------
 # 阶段 2: 代码编译 (builder)
 # ----------------------------------------------------
-FROM oven/bun:1-alpine AS builder
+FROM mirror.gcr.io/oven/bun:1-alpine AS builder
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN bun run build
 # ----------------------------------------------------
 # 阶段 3: 运行时镜像 (runner) - 极致瘦身！
 # ----------------------------------------------------
-FROM oven/bun:1-alpine AS runner
+FROM mirror.gcr.io/oven/bun:1-alpine AS runner
 
 WORKDIR /app
 
