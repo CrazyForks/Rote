@@ -4,7 +4,11 @@ import { usePasskey } from '@/hooks/usePasskey';
 import { get, getApiUrl, post } from '@/utils/api';
 import { authService } from '@/utils/auth';
 import { useAPIGet } from '@/utils/fetcher';
-import { getLoginPathWithRedirect, getSafeLoginRedirect } from '@/utils/loginRedirect';
+import {
+  getLoginPathWithRedirect,
+  getSafeLoginRedirect,
+  isSafeLoginRedirect,
+} from '@/utils/loginRedirect';
 import { registerWithPasskey } from '@/utils/passkey';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -48,6 +52,7 @@ function Login() {
   const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
   const isIosLoginFlow = searchParams.get('type') === 'ioslogin';
   const redirectTarget = searchParams.get('redirect');
+  const hasPostLoginRedirect = isSafeLoginRedirect(redirectTarget);
   const postLoginRedirect = getSafeLoginRedirect(searchParams);
 
   // 如果注册被禁用，确保 activeTab 是 'login'
@@ -221,7 +226,7 @@ function Login() {
         if (accessToken && refreshToken) {
           authService.setTokens(accessToken, refreshToken);
 
-          if (isIosLoginFlow) {
+          if (isIosLoginFlow || hasPostLoginRedirect) {
             mutateProfile();
             completeAuthenticatedFlow({ accessToken, refreshToken });
           } else if (passkeyEnabled) {
