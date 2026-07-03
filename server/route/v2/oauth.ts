@@ -42,6 +42,21 @@ function validateRedirectUrl(redirectUrl: string | null | undefined, defaultUrl:
   return redirectUrl;
 }
 
+function getLoginRedirectUrl(frontendBaseUrl: string, stateData: any | null): URL {
+  return new URL(validateRedirectUrl(stateData?.redirectUrl, '/login'), frontendBaseUrl);
+}
+
+async function extractOptionalStateData(state: string | undefined): Promise<any | null> {
+  if (!state) return null;
+
+  try {
+    return await extractStateData(state);
+  } catch {
+    // Provider cancel callbacks may omit or expire state; route back to the default login page.
+    return null;
+  }
+}
+
 // 获取前端基础 URL
 async function getFrontendBaseUrl(c: HonoContext): Promise<string> {
   const siteConfig = await getConfig<SiteConfig>('site');
@@ -82,7 +97,7 @@ async function handleOAuthError(
       return c.redirect(bindUrl.toString());
     } else {
       // 登录模式错误，重定向到登录页面
-      const loginUrl = new URL('/login', frontendBaseUrl);
+      const loginUrl = getLoginRedirectUrl(frontendBaseUrl, stateData);
       loginUrl.searchParams.set('oauth', 'error');
       loginUrl.searchParams.set('provider', provider);
       loginUrl.searchParams.set('message', userFriendlyMessage);
@@ -98,10 +113,11 @@ async function handleOAuthError(
 async function handleOAuthCancelled(
   c: HonoContext,
   provider: string,
-  _errorCode: string
+  _errorCode: string,
+  stateData: any | null
 ): Promise<Response> {
   const frontendBaseUrl = await getFrontendBaseUrl(c);
-  const loginUrl = new URL('/login', frontendBaseUrl);
+  const loginUrl = getLoginRedirectUrl(frontendBaseUrl, stateData);
   loginUrl.searchParams.set('oauth', 'cancelled');
   loginUrl.searchParams.set('provider', provider);
   return c.redirect(loginUrl.toString());
@@ -277,7 +293,12 @@ async function handleOAuthCallback(c: HonoContext, providerName: string): Promis
     // 处理用户取消授权
     const cancelErrors = ['access_denied', 'user_cancelled_authorize'];
     if (error && cancelErrors.includes(error)) {
-      return await handleOAuthCancelled(c, providerName, error);
+      return await handleOAuthCancelled(
+        c,
+        providerName,
+        error,
+        await extractOptionalStateData(state)
+      );
     }
 
     if (error) {

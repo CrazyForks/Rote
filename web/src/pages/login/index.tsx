@@ -7,7 +7,7 @@ import { useAPIGet } from '@/utils/fetcher';
 import {
   getLoginPathWithRedirect,
   getSafeLoginRedirect,
-  isSafeLoginRedirect,
+  isOAuthAuthorizeRedirect,
 } from '@/utils/loginRedirect';
 import { registerWithPasskey } from '@/utils/passkey';
 import { useEffect, useState } from 'react';
@@ -52,7 +52,7 @@ function Login() {
   const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
   const isIosLoginFlow = searchParams.get('type') === 'ioslogin';
   const redirectTarget = searchParams.get('redirect');
-  const hasPostLoginRedirect = isSafeLoginRedirect(redirectTarget);
+  const hasOAuthAuthorizeRedirect = isOAuthAuthorizeRedirect(redirectTarget);
   const postLoginRedirect = getSafeLoginRedirect(searchParams);
 
   // 如果注册被禁用，确保 activeTab 是 'login'
@@ -226,7 +226,7 @@ function Login() {
         if (accessToken && refreshToken) {
           authService.setTokens(accessToken, refreshToken);
 
-          if (isIosLoginFlow || hasPostLoginRedirect) {
+          if (isIosLoginFlow || hasOAuthAuthorizeRedirect) {
             mutateProfile();
             completeAuthenticatedFlow({ accessToken, refreshToken });
           } else if (passkeyEnabled) {
