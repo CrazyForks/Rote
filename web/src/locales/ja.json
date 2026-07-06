@@ -1147,7 +1147,7 @@
       },
       "hooks": {
         "title": "通知 Hook",
-        "description": "新規ユーザーと新規公開ノート向けの管理者通知チャンネルを設定します。",
+        "description": "新規ユーザーと作成時に公開されたノート向けの管理者通知チャンネルを設定します。",
         "enabled": "管理者通知を有効化",
         "enabledDesc": "有効にすると、選択されたイベントが有効な管理者通知チャンネルに送信されます。",
         "addChannel": "新しいチャンネル種別",
@@ -1191,7 +1191,7 @@
         },
         "eventsMap": {
           "userRegistered": "新規ユーザー登録",
-          "notePublicCreated": "新規公開ノート"
+          "notePublicCreated": "公開ノート作成"
         },
         "bark": {
           "serverUrl": "Bark サーバー URL",

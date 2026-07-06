@@ -66,6 +66,11 @@ adminRouter.post('/hooks/test', authenticateJWT, requireAdmin, async (c: HonoCon
       [testChannel]
     );
 
+    const failedResult = result.results.find((item) => item.status === 'failed');
+    if (failedResult) {
+      return c.json(createResponse(result, failedResult.error || 'Hook test failed'), 502);
+    }
+
     return c.json(createResponse(result), 200);
   } catch (error: any) {
     return c.json(

@@ -1133,7 +1133,7 @@
       },
       "hooks": {
         "title": "通知 Hook",
-        "description": "配置管理员通知渠道，用于新用户和新建公开笔记。",
+        "description": "配置管理员通知渠道，用于新用户和创建时即公开的笔记。",
         "enabled": "启用管理员通知",
         "enabledDesc": "开启后，选中的事件会发送到已启用的管理员通知渠道。",
         "addChannel": "新增渠道类型",
@@ -1177,7 +1177,7 @@
         },
         "eventsMap": {
           "userRegistered": "新用户注册",
-          "notePublicCreated": "新建公开笔记"
+          "notePublicCreated": "创建公开笔记"
         },
         "bark": {
           "serverUrl": "Bark 服务地址",
