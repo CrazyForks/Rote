@@ -113,6 +113,10 @@ function parseSearchNotesInput(args: unknown, fallbackQuery: string): SearchRote
       ? uniqueStrings(raw.excludeTags)
       : uniqueStrings(tags.exclude),
     semanticScope: uniqueStrings(raw.semanticScope),
+    timeRange:
+      raw.timeRange && typeof raw.timeRange === 'object' && !Array.isArray(raw.timeRange)
+        ? raw.timeRange
+        : undefined,
     timeExpression: typeof raw.timeExpression === 'string' ? raw.timeExpression.trim() : undefined,
     from: typeof raw.from === 'string' ? raw.from.trim() : undefined,
     to: typeof raw.to === 'string' ? raw.to.trim() : undefined,
@@ -442,9 +446,71 @@ export function getNativeRoteTools(): RoteAgentTool[] {
                 description:
                   'Soft topic keywords for semantic retrieval. Use for themes and patterns that are not verified tags.',
               },
-              timeExpression: { type: 'string' },
-              from: { type: 'string' },
-              to: { type: 'string' },
+              timeRange: {
+                type: 'object',
+                description:
+                  'Preferred structured time range. Use this instead of free-text from/to for dates.',
+                properties: {
+                  type: {
+                    type: 'string',
+                    enum: ['absolute', 'rolling', 'relative_between', 'preset'],
+                  },
+                  preset: {
+                    type: 'string',
+                    enum: ['today', 'yesterday', 'this_month', 'last_month'],
+                  },
+                  fromDate: {
+                    type: 'string',
+                    description:
+                      'For absolute ranges only. ISO date/datetime such as 2026-05-08 or 2026-05-08T00:00:00+08:00.',
+                  },
+                  toDate: {
+                    type: 'string',
+                    description:
+                      'For absolute ranges only. ISO date/datetime such as 2026-05-09 or 2026-05-09T23:59:59+08:00.',
+                  },
+                  amount: { type: 'number', description: 'For rolling ranges, e.g. 7.' },
+                  unit: {
+                    type: 'string',
+                    enum: ['day', 'week', 'month', 'year'],
+                    description: 'For rolling ranges.',
+                  },
+                  fromRelative: {
+                    type: 'object',
+                    description: 'For relative_between ranges, e.g. 60 days ago.',
+                    properties: {
+                      amount: { type: 'number' },
+                      unit: { type: 'string', enum: ['day', 'week', 'month', 'year'] },
+                      direction: { type: 'string', enum: ['ago'] },
+                    },
+                  },
+                  toRelative: {
+                    type: 'object',
+                    description: 'For relative_between ranges, e.g. 30 days ago.',
+                    properties: {
+                      amount: { type: 'number' },
+                      unit: { type: 'string', enum: ['day', 'week', 'month', 'year'] },
+                      direction: { type: 'string', enum: ['ago'] },
+                    },
+                  },
+                  label: { type: 'string' },
+                },
+              },
+              timeExpression: {
+                type: 'string',
+                description:
+                  'Relative range expression such as today, yesterday, last 7 days, or 最近7天.',
+              },
+              from: {
+                type: 'string',
+                description:
+                  'Absolute ISO date/datetime only, such as 2026-05-08 or 2026-05-08T00:00:00+08:00. Use timeExpression for relative ranges.',
+              },
+              to: {
+                type: 'string',
+                description:
+                  'Absolute ISO date/datetime only, such as 2026-05-09 or 2026-05-09T23:59:59+08:00. Use timeExpression for relative ranges.',
+              },
               lifecycleScope: {
                 type: 'string',
                 enum: Array.from(VALID_LIFECYCLE_SCOPES),
