@@ -114,7 +114,7 @@ function buildTextSearchTimeSql(
 
 function buildTextSearchOrderSql(alias: 'r' | 'a', dateField: RetrievalDateField = 'updatedAt') {
   const column = dateField === 'updatedAt' ? 'updatedAt' : 'createdAt';
-  return sql`${alias}.${sql.raw(`"${column}"`)} DESC, ${alias}."id" DESC`;
+  return sql`${sql.raw(`${alias}."${column}"`)} DESC, ${sql.raw(`${alias}."id"`)} DESC`;
 }
 
 function getResultDate(result: SemanticSearchResult, dateField: RetrievalDateField): number {
