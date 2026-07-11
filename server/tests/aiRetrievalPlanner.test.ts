@@ -137,6 +137,26 @@ describe('canonicalizeSearchRotesArgs', () => {
     expect(scope.timeRange?.label).toBe('最近30天');
   });
 
+  it('overrides unbounded relevance when the user clearly asks for recent records', () => {
+    const explicitRelevance = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近我的记录',
+      args: { query: '工作', selection: 'relevance' },
+    });
+    const invalidRecentExpression = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近我的记录',
+      args: { query: '工作', selection: 'relevance', timeExpression: '最近' },
+    });
+
+    expect(explicitRelevance.scope.selection).toBe('recent');
+    expect(explicitRelevance.scope.limit).toBe(30);
+    expect(invalidRecentExpression.scope.selection).toBe('recent');
+    expect(invalidRecentExpression.scope.timeRange).toBeNull();
+  });
+
   it('uses the recent corpus for broad analysis inside an explicit window', () => {
     const { scope } = canonicalizeSearchRotesArgs({
       ownerId: 'u1',

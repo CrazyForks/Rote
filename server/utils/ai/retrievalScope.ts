@@ -99,15 +99,6 @@ function hasBroadRecentAnalysis(message?: string): boolean {
   return /主题|趋势|重复|反复|模式|总结|themes?|trends?|patterns?|review/i.test(message || '');
 }
 
-function hasExplicitTimeInput(args: SearchRotesArgs): boolean {
-  return Boolean(
-    args.timeRange ||
-    args.timeExpression?.trim() ||
-    (typeof args.from === 'string' && args.from.trim()) ||
-    (typeof args.to === 'string' && args.to.trim())
-  );
-}
-
 function inferDateField(message?: string): RetrievalDateField {
   return /修改|更新|活动|改过|updated|modified|activity/i.test(message || '')
     ? 'updatedAt'
@@ -177,12 +168,11 @@ export function canonicalizeSearchRotesArgs(params: {
     }
   });
 
+  const timeRange = canonicalizeTimeRange(params.args, warnings, params.timeContext || undefined);
   const requestedSelection = normalizeRetrievalSelection(params.args.selection, warnings);
-  const inferredRecentSelection =
-    params.args.selection === undefined &&
-    hasRecentLanguage(params.message) &&
-    (!hasExplicitTimeInput(params.args) || hasBroadRecentAnalysis(params.message));
-  const selection = requestedSelection || (inferredRecentSelection ? 'recent' : 'relevance');
+  const recentSafetyRequired =
+    hasRecentLanguage(params.message) && (!timeRange || hasBroadRecentAnalysis(params.message));
+  const selection = recentSafetyRequired ? 'recent' : requestedSelection || 'relevance';
   const requestedDateField = normalizeRetrievalDateField(params.args.dateField, warnings);
   const dateField = requestedDateField || inferDateField(params.message);
   const defaultLimit =
@@ -198,7 +188,7 @@ export function canonicalizeSearchRotesArgs(params: {
       excludeTags: Array.from(new Set(excludeTags)),
       semanticScope: Array.from(semanticScope).slice(0, 30),
       sourceTypes: normalizeSourceTypes(params.args.sourceTypes, warnings),
-      timeRange: canonicalizeTimeRange(params.args, warnings, params.timeContext || undefined),
+      timeRange,
       selection,
       dateField,
       lifecycleScope: normalizeLifecycleScope(params.args.lifecycleScope),

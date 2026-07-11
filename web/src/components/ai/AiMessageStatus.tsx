@@ -19,15 +19,17 @@ function buildScopeSummary(plan: PlannerAgentDto, t: ReturnType<typeof useTransl
   if (!scope) return summary;
   const listSeparator = t('scope.listSeparator');
 
-  if (scope.selection === 'recent') {
+  if (scope.timeRange) {
+    summary.push(t('scope.time', { label: scope.timeRange.label }));
+  }
+
+  if (scope.selection === 'recent' && !scope.timeRange) {
     summary.push(
       t('scope.latestItems', {
         count: scope.limit,
         field: t(`scope.dateFields.${scope.dateField}`),
       })
     );
-  } else if (scope.timeRange) {
-    summary.push(t('scope.time', { label: scope.timeRange.label }));
   }
 
   if (scope.tags.length) {
