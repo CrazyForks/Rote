@@ -52,11 +52,7 @@ function toClientSource(source: any) {
 }
 
 function sanitizeClientWarning(value: unknown): string {
-  const text = String(value || '').trim();
-  if (text.startsWith('semantic_search_fallback_text')) {
-    return 'semantic_search_fallback_text';
-  }
-  return text;
+  return String(value || '').trim();
 }
 
 function sanitizeWarningArray(value: unknown): string[] {
@@ -91,7 +87,7 @@ function sanitizeClientModelContent(value: string): string {
     }
     return JSON.stringify(parsed, null, 2);
   } catch {
-    return value.replace(/semantic_search_fallback_text:[^"\n]+/g, 'semantic_search_fallback_text');
+    return value;
   }
 }
 

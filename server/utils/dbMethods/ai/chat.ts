@@ -9,7 +9,7 @@ import {
 import { logAiTokenUsage } from '../aiToken';
 import { getStoredAiConfig } from './config';
 import { fallbackAnswer } from './documents';
-import { searchMemoryWithFallback } from './search';
+import { searchMemory } from './search';
 import type {
   PlannerAgentDto,
   PlannerAgentResult,
@@ -86,7 +86,7 @@ export async function searchRotesProbe(scope: RetrievalScope): Promise<SearchRot
   if (scope.cursor && cursorExcludeIds.length === 0) warnings.push('invalid_cursor_ignored');
   const excludeIds = sanitizeExcludeIds([...scope.excludeIds, ...cursorExcludeIds]);
 
-  const { sources, warnings: searchWarnings } = await searchMemoryWithFallback({
+  const { sources, warnings: searchWarnings } = await searchMemory({
     query: scope.query,
     ownerId: scope.ownerId,
     sourceTypes: scope.sourceTypes,

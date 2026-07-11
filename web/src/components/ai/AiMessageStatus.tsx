@@ -100,14 +100,7 @@ function buildDebugSummary(plan: PlannerAgentDto, t: ReturnType<typeof useTransl
   }
 
   if (trace.warnings.length > 0) {
-    const warnings = trace.warnings
-      .slice(0, 3)
-      .map((warning) =>
-        warning.startsWith('semantic_search_fallback_text')
-          ? t('debug.warningLabels.semanticSearchTextFallback')
-          : warning
-      )
-      .join(' / ');
+    const warnings = trace.warnings.slice(0, 3).join(' / ');
     summary.push(t('debug.warnings', { warnings }));
   }
 

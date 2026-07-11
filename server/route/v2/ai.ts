@@ -26,7 +26,7 @@ import {
   getPgvectorStatus,
   getStoredAiConfig,
   prepareRoteChatContext,
-  searchMemoryWithFallback,
+  searchMemory,
   logAiTokenUsage,
 } from '../../utils/dbMethods';
 import { bodyTypeCheck, createResponse } from '../../utils/main';
@@ -291,7 +291,7 @@ aiRouter.post('/search', authenticateJWT, bodyTypeCheck, async (c: HonoContext) 
     return c.json(createResponse(null, 'Query is required'), 400);
   }
 
-  const { sources: results } = await searchMemoryWithFallback({
+  const { sources: results } = await searchMemory({
     query,
     ownerId: body?.scope === 'public' ? undefined : user.id,
     scope: body?.scope === 'public' ? 'public' : 'mine',
@@ -344,7 +344,7 @@ aiRouter.post('/related-notes', authenticateJWT, bodyTypeCheck, async (c: HonoCo
       )
     : ['rote', 'article'];
 
-  const { sources: results } = await searchMemoryWithFallback({
+  const { sources: results } = await searchMemory({
     query,
     ownerId: user.id,
     sourceTypes,

@@ -267,10 +267,10 @@ export async function textSearchMemory(params: {
   };
 
   const matched = await runSearch(terms);
-  return matched.length || terms.length === 0 ? matched : runSearch([]);
+  return matched;
 }
 
-export async function searchMemoryWithFallback(params: {
+export async function searchMemory(params: {
   query: string;
   ownerId?: string;
   scope?: 'mine' | 'public';
@@ -294,13 +294,5 @@ export async function searchMemoryWithFallback(params: {
       warnings,
     };
   }
-  try {
-    return { sources: await semanticSearch(safeParams), warnings };
-  } catch (error: any) {
-    if (params.scope === 'public') throw error;
-    return {
-      sources: await textSearchMemory(safeParams),
-      warnings: [...warnings, 'semantic_search_fallback_text'],
-    };
-  }
+  return { sources: await semanticSearch(safeParams), warnings };
 }

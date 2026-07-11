@@ -4,7 +4,7 @@ import db from '../../drizzle';
 import {
   findArticleById,
   findRoteById,
-  searchMemoryWithFallback,
+  searchMemory,
   searchRotesProbe,
   sanitizeExcludeIds,
   toPlannerAgentDto,
@@ -361,7 +361,7 @@ async function executeFindRelatedNotes(
     status: 'finding_related',
   });
   const { content } = await loadOwnedSource(ctx, sourceType, sourceId);
-  const { sources: foundSources, warnings } = await searchMemoryWithFallback({
+  const { sources: foundSources, warnings } = await searchMemory({
     query: content,
     ownerId: ctx.userId,
     sourceTypes: ['rote'],
