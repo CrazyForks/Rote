@@ -1,10 +1,12 @@
 import { sql } from 'drizzle-orm';
+import { isUuid } from './sourceIds';
 
 export function buildSourceIdExclusionSql(alias: 'r' | 'a', sourceIds: string[]) {
-  if (sourceIds.length === 0) return sql``;
+  const validSourceIds = sourceIds.filter(isUuid);
+  if (validSourceIds.length === 0) return sql``;
 
   const uuidArray = sql`ARRAY[${sql.join(
-    sourceIds.map((sourceId) => sql`${sourceId}`),
+    validSourceIds.map((sourceId) => sql`${sourceId}`),
     sql`, `
   )}]::uuid[]`;
 

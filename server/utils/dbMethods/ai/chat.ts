@@ -10,6 +10,7 @@ import { logAiTokenUsage } from '../aiToken';
 import { getStoredAiConfig } from './config';
 import { fallbackAnswer } from './documents';
 import { searchMemory } from './search';
+import { sanitizeExcludeIds } from './sourceIds';
 import type {
   PlannerAgentDto,
   PlannerAgentResult,
@@ -237,12 +238,6 @@ export async function chatWithRoteContext(params: {
   const answer = content.trim() || fallbackAnswer(sources);
 
   return { answer, sources, plan };
-}
-
-export function sanitizeExcludeIds(ids: string[] | undefined): string[] | undefined {
-  if (!ids?.length) return undefined;
-  const sanitized = ids.filter((id) => /^(rote|article):[a-zA-Z0-9_-]+$/.test(id)).slice(0, 500);
-  return sanitized.length > 0 ? sanitized : undefined;
 }
 
 export async function prepareRoteChatContext(params: {

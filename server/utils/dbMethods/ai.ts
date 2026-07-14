@@ -37,7 +37,7 @@ export {
   buildAnswerMessagesFromPlannerResult,
   chatWithRoteContext,
   prepareRoteChatContext,
-  sanitizeExcludeIds,
   searchRotesProbe,
 } from './ai/chat';
+export { sanitizeExcludeIds } from './ai/sourceIds';
 export { toPlannerAgentDto } from '../ai/retrievalPlan';
