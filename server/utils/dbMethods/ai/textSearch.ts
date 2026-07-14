@@ -7,6 +7,7 @@ import {
 } from './documents';
 import db from '../../drizzle';
 import { semanticSearch } from './semanticSearch';
+import { buildSourceIdExclusionSql } from './textSearchSql';
 import type {
   AiSourceType,
   NormalizedTimeRange,
@@ -180,10 +181,7 @@ export async function textSearchMemory(params: {
         params.state && params.state !== 'all' ? sql`AND r."state" = ${params.state}` : sql``;
       const archivedSql =
         typeof params.archived === 'boolean' ? sql`AND r."archived" = ${params.archived}` : sql``;
-      const excludeSql =
-        excludeRoteIds.length > 0
-          ? sql`AND NOT (r."id" = ANY(${buildTextArraySql(excludeRoteIds)}))`
-          : sql``;
+      const excludeSql = buildSourceIdExclusionSql('r', excludeRoteIds);
       const rows = (await db.execute(sql`
         SELECT
           r."id",
@@ -219,10 +217,7 @@ export async function textSearchMemory(params: {
       !params.tags?.include?.length &&
       !params.tags?.exclude?.length
     ) {
-      const excludeSql =
-        excludeArticleIds.length > 0
-          ? sql`AND NOT (a."id" = ANY(${buildTextArraySql(excludeArticleIds)}))`
-          : sql``;
+      const excludeSql = buildSourceIdExclusionSql('a', excludeArticleIds);
       const rows = (await db.execute(sql`
         SELECT
           a."id",
