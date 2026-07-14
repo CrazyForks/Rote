@@ -4,6 +4,11 @@ import { usePasskey } from '@/hooks/usePasskey';
 import { get, getApiUrl, post } from '@/utils/api';
 import { authService } from '@/utils/auth';
 import { useAPIGet } from '@/utils/fetcher';
+import {
+  getLoginPathWithRedirect,
+  getSafeLoginRedirect,
+  isOAuthAuthorizeRedirect,
+} from '@/utils/loginRedirect';
 import { registerWithPasskey } from '@/utils/passkey';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -47,10 +52,8 @@ function Login() {
   const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
   const isIosLoginFlow = searchParams.get('type') === 'ioslogin';
   const redirectTarget = searchParams.get('redirect');
-  const postLoginRedirect =
-    redirectTarget && redirectTarget.startsWith('/') && !redirectTarget.startsWith('//')
-      ? redirectTarget
-      : '/home';
+  const hasOAuthAuthorizeRedirect = isOAuthAuthorizeRedirect(redirectTarget);
+  const postLoginRedirect = getSafeLoginRedirect(searchParams);
 
   // 如果注册被禁用，确保 activeTab 是 'login'
   useEffect(() => {
@@ -110,7 +113,7 @@ function Login() {
     refreshToken?: string | null;
   }) {
     if (!isIosLoginFlow) {
-      navigate(postLoginRedirect);
+      navigate(postLoginRedirect, { replace: true });
       return;
     }
 
@@ -223,7 +226,7 @@ function Login() {
         if (accessToken && refreshToken) {
           authService.setTokens(accessToken, refreshToken);
 
-          if (isIosLoginFlow) {
+          if (isIosLoginFlow || hasOAuthAuthorizeRedirect) {
             mutateProfile();
             completeAuthenticatedFlow({ accessToken, refreshToken });
           } else if (passkeyEnabled) {
@@ -321,7 +324,7 @@ function Login() {
       // OAuth 登录失败
       toast.error(decodeURIComponent(errorMessage));
       // 清除 URL 参数
-      navigate('/login', { replace: true });
+      navigate(getLoginPathWithRedirect(postLoginRedirect), { replace: true });
     } else if (oauthStatus === 'cancelled') {
       // 用户取消授权
       const provider = searchParams.get('provider');
@@ -332,7 +335,7 @@ function Login() {
         toast.info(t('messages.oauthCancelled'));
       }
       // 清除 URL 参数
-      navigate('/login', { replace: true });
+      navigate(getLoginPathWithRedirect(postLoginRedirect), { replace: true });
     }
   }, [searchParams, navigate, mutateProfile, t, isIosLoginFlow, postLoginRedirect]);
 

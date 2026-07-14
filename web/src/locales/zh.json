@@ -35,7 +35,7 @@
         }
       },
       "aiMemory": {
-        "tagline": "AI MEMORY",
+        "tagline": "记忆",
         "title": "让笔记成为可对话的 AGENT",
         "subtitle": "所有记录的内容向量化保存，加上智能体架构设计",
         "features": {
@@ -45,7 +45,7 @@
           },
           "sources": {
             "title": "自我探索",
-            "description": "使用 AI 记忆探索你的笔记，发现你自己都没意识到的小惊喜"
+            "description": "使用记忆探索你的笔记，发现你自己都没意识到的小惊喜"
           },
           "agent": {
             "title": "相关笔记",
@@ -80,7 +80,7 @@
           },
           "sourceTitle": "引用来源",
           "sources": [
-            "AI 记忆已经基本用了，但是有一个不幸的消息，他认为我是 ENFP，这个让我很不满意 😡",
+            "记忆已经基本用了，但是有一个不幸的消息，他认为我是 ENFP，这个让我很不满意 😡",
             "这两天在适配iOS17，在思考是否是个好主意，因为工程量确实挺大的，还有很多奇怪bug，目前怀疑可能是系统层面的问题，也可能是因为我没有iOS17的真机测试，模拟器的bug？以及还会导致代码包袱越来越重。",
             "mbti 16型人格，适婚年龄，INFJ 看完嘎巴一下就 4 了",
             "Tags: 生活, 自我调节",
@@ -146,7 +146,7 @@
       "leftNavBar": {
         "home": "首页",
         "explore": "探索",
-        "aiMemory": "AI 记忆",
+        "aiMemory": "记忆",
         "archived": "归档",
         "profile": "我的",
         "experiment": "实验",
@@ -485,7 +485,7 @@
       }
     },
     "aiMemory": {
-      "title": "AI 记忆",
+      "title": "记忆",
       "sideBarTitle": "助手面板",
       "send": "发送",
       "clear": "清空对话",
@@ -508,8 +508,8 @@
       },
       "saveAsArticle": "保存为文章",
       "saved": "已保存",
-      "savedArticleTitle": "AI 记忆回答",
-      "savedArticleNoteContent": "AI 记忆回答",
+      "savedArticleTitle": "记忆回答",
+      "savedArticleNoteContent": "记忆回答",
       "savedSourceTitle": "来源",
       "actions": {
         "copy": "复制",
@@ -548,10 +548,10 @@
         "checking": "检测中...",
         "ready": "配置已就绪",
         "chatReady": "对话模型已配置",
-        "unverified": "完成认证后可使用 AI",
-        "permissionDenied": "当前账号没有站内云端 AI 对话权限",
-        "unavailable": "AI 或向量索引暂不可用",
-        "memoryUnavailable": "对话模型已配置，AI 记忆还需要启用向量索引"
+        "unverified": "AI 使用由管理员权限配置控制",
+        "permissionDenied": "当前账号没有 AI 对话权限",
+        "unavailable": "AI 对话模型未配置",
+        "memoryUnavailable": "对话模型已配置，记忆还需要启用向量索引"
       },
       "model": {
         "source": "模型来源",
@@ -566,7 +566,7 @@
       },
       "personal": {
         "title": "个人 AI 设置",
-        "description": "选择这次 AI 记忆问答使用站点模型，或使用你自己的 OpenAI-compatible 模型/API。",
+        "description": "选择这次记忆问答使用站点模型，或使用你自己的 OpenAI-compatible 模型/API。",
         "openSettings": "个人 AI 设置",
         "siteMode": "站点 AI",
         "siteModeDesc": "使用管理员在后台配置的模型和向量索引。",
@@ -588,9 +588,9 @@
         "probeConfigured": "已配置",
         "probeMissing": "未就绪",
         "siteProbeChecking": "正在读取站内 AI 状态。",
-        "siteProbeReady": "站内 AI 对话已就绪；AI 记忆是否可用取决于向量索引状态。",
-        "siteProbePartial": "站内对话模型和权限已配置，但账号资格还未就绪。",
-        "siteProbeMissing": "站内 AI 还不可用，请使用个人模型或联系管理员。",
+        "siteProbeReady": "站内 AI 对话已就绪；记忆是否可用取决于向量索引状态。",
+        "siteProbePartial": "站内对话模型和权限已配置，但记忆还未就绪。",
+        "siteProbeMissing": "站内 AI 还不可用，请使用个人模型，或联系管理员检查 AI 对话权限和模型配置。",
         "personalProbeReady": "模型/API 已启用；可测试接口，回答时会使用该配置。",
         "personalProbeDisabled": "模型/API 配置已填写，可以测试接口；打开开关后才会用于回答。",
         "personalProbeMissing": "请先填写 Base URL 与模型名。",
@@ -643,9 +643,15 @@
         "title": "范围",
         "paginationMore": "查看更多",
         "time": "时间：{{label}}",
+        "latestItems": "最近 {{count}} 条（按{{field}}）",
+        "dateFields": {
+          "createdAt": "创建时间",
+          "updatedAt": "更新时间"
+        },
         "tags": "标签：{{tags}}",
         "excludeTags": "排除标签：{{tags}}",
         "semanticScope": "关键词：{{keywords}}",
+        "listSeparator": "、",
         "sourceTypes": {
           "rote": "内容类型：笔记",
           "article": "内容类型：文章",
@@ -676,10 +682,7 @@
         "fallback": "降级原因：{{reason}}",
         "providerError": "模型工具调用失败",
         "toolError": "检索工具失败",
-        "warnings": "提示：{{warnings}}",
-        "warningLabels": {
-          "semanticSearchTextFallback": "语义检索不可用，已使用文本搜索"
-        }
+        "warnings": "提示：{{warnings}}"
       },
       "timeline": {
         "title": "进度",
@@ -1009,6 +1012,7 @@
         "security": "安全设置",
         "oauth": "OAuth 登录",
         "ai": "AI 相关",
+        "hooks": "通知 Hook",
         "users": "用户管理",
         "permissions": "权限管理"
       },
@@ -1130,6 +1134,102 @@
         "requireCertifiedUserForExplore": "仅允许已认证用户出现在探索页",
         "requireCertifiedUserForExploreDesc": "开启后，只有已认证用户的公开笔记才会被推荐到「探索」页面；已公开的笔记仍可通过链接访问。"
       },
+      "hooks": {
+        "title": "通知 Hook",
+        "description": "配置管理员通知渠道，用于新用户和创建时即公开的笔记。",
+        "enabled": "启用管理员通知",
+        "enabledDesc": "开启后，选中的事件会发送到已启用的管理员通知渠道。",
+        "addChannel": "新增渠道类型",
+        "add": "新增渠道",
+        "empty": "还没有通知渠道。",
+        "channelEnabled": "启用渠道",
+        "channelEnabledDesc": "关闭后，该渠道不会接收任何管理员 Hook 事件。",
+        "channelName": "渠道名称",
+        "channelType": "渠道类型",
+        "configure": "配置",
+        "remove": "删除",
+        "test": "测试",
+        "testing": "测试中...",
+        "testSuccess": "测试已发送（{{result}}）",
+        "testFailed": "测试失败：{{error}}",
+        "unknownError": "未知错误",
+        "events": "触发事件",
+        "enabledStatus": "已启用",
+        "disabledStatus": "已停用",
+        "notConfigured": "未配置",
+        "adminPwaDetail": "发送给已有管理员 PWA 订阅",
+        "noEvents": "未选择触发事件",
+        "dialog": {
+          "addTitle": "新增通知渠道",
+          "addDesc": "选择渠道类型并填写用于接收管理员通知的配置。",
+          "editTitle": "配置通知渠道",
+          "editDesc": "调整渠道名称、启用状态、事件和投递参数。",
+          "cancel": "取消",
+          "addAction": "新增渠道",
+          "applyAction": "应用配置"
+        },
+        "channelDefaults": {
+          "bark": "Bark 通知",
+          "http": "HTTP Hook",
+          "admin_pwa": "管理员 PWA"
+        },
+        "channelTypes": {
+          "bark": "Bark",
+          "http": "HTTP POST",
+          "admin_pwa": "管理员 PWA"
+        },
+        "eventsMap": {
+          "userRegistered": "新用户注册",
+          "notePublicCreated": "创建公开笔记"
+        },
+        "bark": {
+          "serverUrl": "Bark 服务地址",
+          "key": "Bark Key",
+          "group": "分组",
+          "icon": "图标 URL",
+          "sound": "提示音",
+          "soundDefault": "默认提示音",
+          "sounds": {
+            "alarm": "Alarm",
+            "anticipate": "Anticipate",
+            "bell": "Bell",
+            "birdsong": "Birdsong",
+            "bloom": "Bloom",
+            "calypso": "Calypso",
+            "chime": "Chime",
+            "choo": "Choo",
+            "descent": "Descent",
+            "electronic": "Electronic",
+            "fanfare": "Fanfare",
+            "glass": "Glass",
+            "gotosleep": "Go To Sleep",
+            "healthnotification": "Health Notification",
+            "horn": "Horn",
+            "ladder": "Ladder",
+            "mailsent": "Mail Sent",
+            "minuet": "Minuet",
+            "multiwayinvitation": "Multiway Invitation",
+            "newmail": "New Mail",
+            "newsflash": "News Flash",
+            "noir": "Noir",
+            "paymentsuccess": "Payment Success",
+            "shake": "Shake",
+            "sherwoodforest": "Sherwood Forest",
+            "silence": "Silence",
+            "spell": "Spell",
+            "suspense": "Suspense",
+            "telegraph": "Telegraph",
+            "tiptoes": "Tiptoes",
+            "typewriters": "Typewriters",
+            "update": "Update"
+          }
+        },
+        "http": {
+          "url": "HTTP URL",
+          "headers": "请求头",
+          "headersDesc": "每行一个请求头，格式为 Key: Value。请求体固定为 JSON 事件 envelope。"
+        }
+      },
       "oauth": {
         "title": "OAuth 登录配置",
         "description": "配置第三方 OAuth 提供商登录设置，允许用户通过 GitHub 等平台登录。",
@@ -1237,7 +1337,7 @@
           "copy": "复制命令",
           "copySuccess": "命令已复制",
           "copyFailed": "复制失败",
-          "embeddingNote": "AI 记忆还需要 embedding 模型。pgvector HNSW 索引要求维度不超过 2000；如果本地 embedding 返回更高维度，请先关闭向量记忆或换用较低维度的 embedding 模型。"
+          "embeddingNote": "记忆还需要 embedding 模型。pgvector HNSW 索引要求维度不超过 2000；如果本地 embedding 返回更高维度，请先关闭向量记忆或换用较低维度的 embedding 模型。"
         }
       },
       "users": {
@@ -1325,9 +1425,9 @@
             "label": "上传视频",
             "description": "允许上传视频；该权限依赖上传附件权限。"
           },
-          "ai.site.chat": {
-            "label": "站内云端 AI 对话",
-            "description": "允许使用站点配置的云端对话模型。"
+          "ai.chat": {
+            "label": "AI 对话",
+            "description": "允许使用 AI 对话；系统记忆运行环境就绪时也可使用记忆工具。"
           }
         },
         "userDialog": {

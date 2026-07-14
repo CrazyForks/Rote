@@ -35,9 +35,9 @@
         }
       },
       "aiMemory": {
-        "tagline": "AI MEMORY",
+        "tagline": "メモリー",
         "title": "ノートを会話できる AGENT に",
-        "subtitle": "記録した内容をベクトル化し、エージェント設計で自分の記憶を扱えるようにします。",
+        "subtitle": "記録した内容をベクトル化し、エージェント設計で自分のメモリーを扱えるようにします。",
         "features": {
           "semantic": {
             "title": "断片から意味を見つける",
@@ -45,7 +45,7 @@
           },
           "sources": {
             "title": "自己探索",
-            "description": "AI メモリーで自分のノートを探索し、自分でも気づかなかった小さな発見に出会えます"
+            "description": "メモリーで自分のノートを探索し、自分でも気づかなかった小さな発見に出会えます"
           },
           "agent": {
             "title": "関連ノート",
@@ -88,7 +88,7 @@
           },
           "sourceTitle": "引用元",
           "sources": [
-            "AI メモリーはほぼ使えるようになったけれど、残念なお知らせがひとつ。AI は私を ENFP だと思っていて、それがとても不満 😡",
+            "メモリーはほぼ使えるようになったけれど、残念なお知らせがひとつ。AI は私を ENFP だと思っていて、それがとても不満 😡",
             "この数日 iOS 17 対応をしていて、それが良い判断なのか考えている。作業量はかなり大きいし、奇妙なバグも多い。システム側の問題かもしれないし、iOS 17 の実機がなくてシミュレーターのバグかもしれない。さらにコードの負担も増えていくかもしれない。",
             "MBTI 16 タイプ、結婚適齢期、INFJ が見たら一瞬で固まる",
             "Tags: 生活, 自己調整",
@@ -160,7 +160,7 @@
       "leftNavBar": {
         "home": "ホーム",
         "explore": "探索",
-        "aiMemory": "AI メモリー",
+        "aiMemory": "メモリー",
         "archived": "アーカイブ",
         "profile": "プロフィール",
         "experiment": "実験",
@@ -499,7 +499,7 @@
       }
     },
     "aiMemory": {
-      "title": "AI メモリー",
+      "title": "メモリー",
       "sideBarTitle": "アシスタントパネル",
       "send": "送信",
       "clear": "チャットをクリア",
@@ -522,8 +522,8 @@
       },
       "saveAsArticle": "記事として保存",
       "saved": "保存済み",
-      "savedArticleTitle": "AI メモリー回答",
-      "savedArticleNoteContent": "AI メモリー回答",
+      "savedArticleTitle": "メモリー回答",
+      "savedArticleNoteContent": "メモリー回答",
       "savedSourceTitle": "ソース",
       "actions": {
         "copy": "コピー",
@@ -562,10 +562,10 @@
         "checking": "確認中...",
         "ready": "設定準備完了",
         "chatReady": "チャットモデル設定済み",
-        "unverified": "認証後に AI を利用できます",
-        "permissionDenied": "このアカウントにはサイトのクラウド AI チャット権限がありません",
-        "unavailable": "AI またはベクトル索引を利用できません",
-        "memoryUnavailable": "チャットモデルは設定済みですが、AI メモリーにはベクトル索引が必要です"
+        "unverified": "AI の利用可否は管理者の権限設定で制御されます",
+        "permissionDenied": "このアカウントには AI チャット権限がありません",
+        "unavailable": "AI チャットモデルが未設定です",
+        "memoryUnavailable": "チャットモデルは設定済みですが、メモリーにはベクトル索引が必要です"
       },
       "model": {
         "source": "モデルソース",
@@ -580,7 +580,7 @@
       },
       "personal": {
         "title": "個人 AI 設定",
-        "description": "AI メモリーの回答に、サイトモデルまたは自分の OpenAI 互換モデル/API を選択します。",
+        "description": "メモリーの回答に、サイトモデルまたは自分の OpenAI 互換モデル/API を選択します。",
         "openSettings": "個人 AI 設定",
         "siteMode": "サイト AI",
         "siteModeDesc": "管理者が設定したモデルとベクトル索引を使います。",
@@ -602,9 +602,9 @@
         "probeConfigured": "設定済み",
         "probeMissing": "未準備",
         "siteProbeChecking": "サイト AI の状態を読み取っています。",
-        "siteProbeReady": "サイト AI チャットは利用できます。AI メモリーの可用性はベクトル索引の状態に依存します。",
-        "siteProbePartial": "サイトのチャットモデルと権限は設定済みですが、アカウント資格が未準備です。",
-        "siteProbeMissing": "サイト AI はまだ利用できません。個人モデルを使うか管理者に連絡してください。",
+        "siteProbeReady": "サイト AI チャットは利用できます。メモリーの可用性はベクトル索引の状態に依存します。",
+        "siteProbePartial": "サイトのチャットモデルと権限は設定済みですが、メモリーはまだ準備できていません。",
+        "siteProbeMissing": "サイト AI はまだ利用できません。個人モデルを使うか、AI チャット権限とモデル設定を管理者に確認してください。",
         "personalProbeReady": "モデル/API は有効です。API をテストできます。回答時はこの設定を使用します。",
         "personalProbeDisabled": "モデル/API 設定は入力済みなので API をテストできます。回答に使うにはスイッチをオンにしてください。",
         "personalProbeMissing": "Base URL とモデル名を入力してください。",
@@ -657,9 +657,15 @@
         "title": "範囲",
         "paginationMore": "さらに表示",
         "time": "時間：{{label}}",
+        "latestItems": "最新{{count}}件（{{field}}）",
+        "dateFields": {
+          "createdAt": "作成日時",
+          "updatedAt": "更新日時"
+        },
         "tags": "タグ：{{tags}}",
         "excludeTags": "除外タグ：{{tags}}",
         "semanticScope": "キーワード：{{keywords}}",
+        "listSeparator": "、",
         "sourceTypes": {
           "rote": "種類：ノート",
           "article": "種類：記事",
@@ -690,10 +696,7 @@
         "fallback": "フォールバック：{{reason}}",
         "providerError": "モデルのツール呼び出しに失敗",
         "toolError": "検索ツールに失敗",
-        "warnings": "警告：{{warnings}}",
-        "warningLabels": {
-          "semanticSearchTextFallback": "セマンティック検索が利用できないため、テキスト検索を使用しました"
-        }
+        "warnings": "警告：{{warnings}}"
       },
       "timeline": {
         "title": "進捗",
@@ -743,8 +746,8 @@
         "reading": "ソースを読んで生成中...",
         "interrupted": "前回の回答は中断されました",
         "askFailed": "リクエスト失敗",
-        "fallbackNoAnswerWithSources": "関連する記憶が見つかりましたが、モデルから有効な回答が返されませんでした。別の質問を試すか、範囲を絞ってみてください。",
-        "fallbackNoAnswerNoSources": "関連する記憶が見つからなかったため、現在のノートに基づいて回答することができません。",
+        "fallbackNoAnswerWithSources": "関連するメモリーが見つかりましたが、モデルから有効な回答が返されませんでした。別の質問を試すか、範囲を絞ってみてください。",
+        "fallbackNoAnswerNoSources": "関連するメモリーが見つからなかったため、現在のノートに基づいて回答することができません。",
         "clarifyUnresolvedTags": "タグ {{tags}} が見つかりませんでした。既存のタグに変更するか、タグを限定せずにキーワードで検索しますか？",
         "clarifyAmbiguousTime": "どの期間のノートを見たいですか？",
         "clarifyAmbiguousScope": "範囲が少し曖昧です。もう少し具体的に指定していただけますか？",
@@ -1023,6 +1026,7 @@
         "security": "セキュリティ設定",
         "oauth": "OAuth ログイン",
         "ai": "AI 関連",
+        "hooks": "通知 Hook",
         "users": "ユーザー管理",
         "permissions": "権限管理"
       },
@@ -1144,6 +1148,102 @@
         "requireCertifiedUserForExplore": "認証済みユーザーのみ探索ページに表示",
         "requireCertifiedUserForExploreDesc": "有効にすると、認証済みユーザーのみ、公開ノートが探索ページで推奨されます。既存の公開ノートは直接リンクで引き続きアクセス可能です。"
       },
+      "hooks": {
+        "title": "通知 Hook",
+        "description": "新規ユーザーと作成時に公開されたノート向けの管理者通知チャンネルを設定します。",
+        "enabled": "管理者通知を有効化",
+        "enabledDesc": "有効にすると、選択されたイベントが有効な管理者通知チャンネルに送信されます。",
+        "addChannel": "新しいチャンネル種別",
+        "add": "チャンネルを追加",
+        "empty": "通知チャンネルはまだありません。",
+        "channelEnabled": "チャンネルを有効化",
+        "channelEnabledDesc": "無効にすると、このチャンネルは管理者 Hook イベントを受信しません。",
+        "channelName": "チャンネル名",
+        "channelType": "チャンネル種別",
+        "configure": "設定",
+        "remove": "削除",
+        "test": "テスト",
+        "testing": "テスト中...",
+        "testSuccess": "テストを送信しました（{{result}}）",
+        "testFailed": "テストに失敗しました：{{error}}",
+        "unknownError": "不明なエラー",
+        "events": "トリガーイベント",
+        "enabledStatus": "有効",
+        "disabledStatus": "無効",
+        "notConfigured": "未設定",
+        "adminPwaDetail": "既存の管理者 PWA サブスクリプションに送信",
+        "noEvents": "トリガーイベントが選択されていません",
+        "dialog": {
+          "addTitle": "通知チャンネルを追加",
+          "addDesc": "チャンネル種別を選び、管理者通知の設定を入力します。",
+          "editTitle": "通知チャンネルを設定",
+          "editDesc": "チャンネル名、有効状態、イベント、配信パラメータを調整します。",
+          "cancel": "キャンセル",
+          "addAction": "チャンネルを追加",
+          "applyAction": "設定を適用"
+        },
+        "channelDefaults": {
+          "bark": "Bark 通知",
+          "http": "HTTP Hook",
+          "admin_pwa": "管理者 PWA"
+        },
+        "channelTypes": {
+          "bark": "Bark",
+          "http": "HTTP POST",
+          "admin_pwa": "管理者 PWA"
+        },
+        "eventsMap": {
+          "userRegistered": "新規ユーザー登録",
+          "notePublicCreated": "公開ノート作成"
+        },
+        "bark": {
+          "serverUrl": "Bark サーバー URL",
+          "key": "Bark Key",
+          "group": "グループ",
+          "icon": "アイコン URL",
+          "sound": "通知音",
+          "soundDefault": "デフォルト通知音",
+          "sounds": {
+            "alarm": "Alarm",
+            "anticipate": "Anticipate",
+            "bell": "Bell",
+            "birdsong": "Birdsong",
+            "bloom": "Bloom",
+            "calypso": "Calypso",
+            "chime": "Chime",
+            "choo": "Choo",
+            "descent": "Descent",
+            "electronic": "Electronic",
+            "fanfare": "Fanfare",
+            "glass": "Glass",
+            "gotosleep": "Go To Sleep",
+            "healthnotification": "Health Notification",
+            "horn": "Horn",
+            "ladder": "Ladder",
+            "mailsent": "Mail Sent",
+            "minuet": "Minuet",
+            "multiwayinvitation": "Multiway Invitation",
+            "newmail": "New Mail",
+            "newsflash": "News Flash",
+            "noir": "Noir",
+            "paymentsuccess": "Payment Success",
+            "shake": "Shake",
+            "sherwoodforest": "Sherwood Forest",
+            "silence": "Silence",
+            "spell": "Spell",
+            "suspense": "Suspense",
+            "telegraph": "Telegraph",
+            "tiptoes": "Tiptoes",
+            "typewriters": "Typewriters",
+            "update": "Update"
+          }
+        },
+        "http": {
+          "url": "HTTP URL",
+          "headers": "リクエストヘッダー",
+          "headersDesc": "1 行に 1 つ、Key: Value の形式で入力します。リクエスト本文は常に JSON イベント envelope です。"
+        }
+      },
       "oauth": {
         "title": "OAuth ログイン設定",
         "description": "GitHubなどのプラットフォーム経由でログインできるように、サードパーティOAuthプロバイダーのログイン設定を構成",
@@ -1179,7 +1279,7 @@
       },
       "ai": {
         "title": "AI 関連",
-        "description": "モデルプロバイダー、セマンティックインデックス、Rote メモリ検索を設定します。",
+        "description": "モデルプロバイダー、セマンティックインデックス、Rote メモリー検索を設定します。",
         "enabled": "AI を有効化",
         "enabledDesc": "設定済みのチャットモデルを AI API で使用します。",
         "vectorEnabled": "ベクトル保存を有効化",
@@ -1251,7 +1351,7 @@
           "copy": "コマンドをコピー",
           "copySuccess": "コマンドをコピーしました",
           "copyFailed": "コピーに失敗しました",
-          "embeddingNote": "AI メモリーには埋め込みモデルも必要です。pgvector HNSW インデックスは 2000 次元以下が必要です。ローカル埋め込みがそれ以上の次元を返す場合は、ベクトルメモリーをオフにするか、低次元の埋め込みモデルを使用してください。"
+          "embeddingNote": "メモリーには埋め込みモデルも必要です。pgvector HNSW インデックスは 2000 次元以下が必要です。ローカル埋め込みがそれ以上の次元を返す場合は、ベクトルメモリーをオフにするか、低次元の埋め込みモデルを使用してください。"
         }
       },
       "users": {
@@ -1339,9 +1439,9 @@
             "label": "動画をアップロード",
             "description": "動画のアップロードを許可します。添付ファイルのアップロード権限が必要です。"
           },
-          "ai.site.chat": {
-            "label": "サイトのクラウド AI チャット",
-            "description": "サイトで設定されたクラウドチャットモデルの使用を許可します。"
+          "ai.chat": {
+            "label": "AI チャット",
+            "description": "AI チャットを許可し、システムのメモリー実行環境が準備できていればメモリーツールも利用できます。"
           }
         },
         "userDialog": {

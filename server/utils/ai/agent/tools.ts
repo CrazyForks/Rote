@@ -4,7 +4,7 @@ import db from '../../drizzle';
 import {
   findArticleById,
   findRoteById,
-  searchMemoryWithFallback,
+  searchMemory,
   searchRotesProbe,
   sanitizeExcludeIds,
   toPlannerAgentDto,
@@ -16,10 +16,19 @@ import {
   canonicalizeSearchRotesArgs,
   getUserRoteTags,
   type LifecycleScope,
+  type RetrievalDateField,
+  type RetrievalSelection,
   type SearchRotesArgs,
   type TaskStatusScope,
 } from '../retrievalPlan';
 import { getNativeRoteSkill, NATIVE_ROTE_SKILLS } from './skills';
+import {
+  FIND_RELATED_NOTES_TOOL_DEFINITION,
+  GET_NOTE_TOOL_DEFINITION,
+  GET_TAGS_TOOL_DEFINITION,
+  createSearchNotesToolDefinition,
+  createSkillViewToolDefinition,
+} from './toolDefinitions';
 import type {
   RoteAgentContext,
   RoteAgentSourceRegistration,
@@ -74,7 +83,13 @@ function formatSourceMetadata(source: SemanticSearchResult): Record<string, unkn
         : undefined,
     createdAt: metadata.createdAt || undefined,
     updatedAt: metadata.updatedAt || undefined,
-    similarity: Number.isFinite(source.similarity) ? Number(source.similarity.toFixed(3)) : null,
+    retrievalMode: source.retrievalMode || metadata.retrievalMode || 'relevance',
+    similarity:
+      source.retrievalMode === 'recent' || metadata.retrievalMode === 'recent'
+        ? null
+        : Number.isFinite(source.similarity)
+          ? Number(source.similarity.toFixed(3))
+          : null,
   };
 }
 
@@ -113,9 +128,21 @@ function parseSearchNotesInput(args: unknown, fallbackQuery: string): SearchRote
       ? uniqueStrings(raw.excludeTags)
       : uniqueStrings(tags.exclude),
     semanticScope: uniqueStrings(raw.semanticScope),
+    timeRange:
+      raw.timeRange && typeof raw.timeRange === 'object' && !Array.isArray(raw.timeRange)
+        ? raw.timeRange
+        : undefined,
     timeExpression: typeof raw.timeExpression === 'string' ? raw.timeExpression.trim() : undefined,
     from: typeof raw.from === 'string' ? raw.from.trim() : undefined,
     to: typeof raw.to === 'string' ? raw.to.trim() : undefined,
+    selection:
+      raw.selection === 'relevance' || raw.selection === 'recent'
+        ? (raw.selection as RetrievalSelection)
+        : undefined,
+    dateField:
+      raw.dateField === 'createdAt' || raw.dateField === 'updatedAt'
+        ? (raw.dateField as RetrievalDateField)
+        : undefined,
     lifecycleScope: VALID_LIFECYCLE_SCOPES.has(raw.lifecycleScope as LifecycleScope)
       ? (raw.lifecycleScope as LifecycleScope)
       : VALID_LIFECYCLE_SCOPES.has(raw.archivedScope as LifecycleScope)
@@ -151,10 +178,12 @@ async function executeAgentSearch(
     ownerId: ctx.userId,
     args: input,
     availableTags,
+    message: ctx.request.message,
     excludeIds: sanitizeExcludeIds([
       ...(ctx.request.excludeIds || []),
       ...(ctx.state.seenSourceIds || []),
     ]),
+    timeContext: ctx.state.clientContext,
   });
   const probe = await searchRotesProbe(scope);
   const toolResult = {
@@ -332,7 +361,7 @@ async function executeFindRelatedNotes(
     status: 'finding_related',
   });
   const { content } = await loadOwnedSource(ctx, sourceType, sourceId);
-  const { sources: foundSources, warnings } = await searchMemoryWithFallback({
+  const { sources: foundSources, warnings } = await searchMemory({
     query: content,
     ownerId: ctx.userId,
     sourceTypes: ['rote'],
@@ -394,141 +423,26 @@ async function executeSkillView(args: unknown): Promise<RoteAgentToolResult> {
 export function getNativeRoteTools(): RoteAgentTool[] {
   return [
     {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'rote_skill_view',
-          description: 'Load the workflow and safety notes for a built-in Rote AI skill.',
-          parameters: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                enum: NATIVE_ROTE_SKILLS.map((skill) => skill.name),
-              },
-            },
-            required: ['name'],
-          },
-        },
-      },
+      definition: createSkillViewToolDefinition(),
       execute: executeSkillView,
     },
     {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'rote_search_notes',
-          description:
-            'Search the current user Rote notes and articles with Rote-aware filters. Use this before answering questions that depend on memory.',
-          parameters: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description:
-                  'Semantic evidence query. For broad analysis, write a broad useful query; leave empty only for pure hard-filter browsing.',
-              },
-              tags: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-              excludeTags: {
-                type: 'array',
-                items: { type: 'string' },
-              },
-              semanticScope: {
-                type: 'array',
-                items: { type: 'string' },
-                description:
-                  'Soft topic keywords for semantic retrieval. Use for themes and patterns that are not verified tags.',
-              },
-              timeExpression: { type: 'string' },
-              from: { type: 'string' },
-              to: { type: 'string' },
-              lifecycleScope: {
-                type: 'string',
-                enum: Array.from(VALID_LIFECYCLE_SCOPES),
-                description:
-                  'Note lifecycle scope only: active for unarchived notes, archived for archived notes, all for both, unspecified if not asked.',
-              },
-              taskStatusScope: {
-                type: 'string',
-                enum: Array.from(VALID_TASK_STATUS_SCOPES),
-                description:
-                  'Task/open-loop semantic scope only. This is independent from lifecycleScope and does not map to archived.',
-              },
-              sourceTypes: {
-                type: 'array',
-                items: { type: 'string', enum: ['rote', 'article'] },
-              },
-              limit: {
-                type: 'number',
-                description:
-                  'Final source count to return. Choose a larger value for broad pattern analysis and a smaller value for focused lookup.',
-              },
-              cursor: {
-                type: 'string',
-                description: 'Opaque cursor returned by a previous rote_search_notes call.',
-              },
-            },
-            required: ['query'],
-          },
-        },
-      },
+      definition: createSearchNotesToolDefinition({
+        lifecycleScopes: Array.from(VALID_LIFECYCLE_SCOPES),
+        taskStatusScopes: Array.from(VALID_TASK_STATUS_SCOPES),
+      }),
       execute: executeSearchNotes,
     },
     {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'rote_get_note',
-          description: 'Read more context for one Rote source owned by the current user.',
-          parameters: {
-            type: 'object',
-            properties: {
-              sourceType: { type: 'string', enum: ['rote', 'article'] },
-              sourceId: { type: 'string' },
-              reason: { type: 'string' },
-            },
-            required: ['sourceType', 'sourceId'],
-          },
-        },
-      },
+      definition: GET_NOTE_TOOL_DEFINITION,
       execute: executeGetNote,
     },
     {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'rote_find_related_notes',
-          description: 'Find related Rote notes for a source owned by the current user.',
-          parameters: {
-            type: 'object',
-            properties: {
-              sourceType: { type: 'string', enum: ['rote', 'article'] },
-              sourceId: { type: 'string' },
-              limit: { type: 'number' },
-            },
-            required: ['sourceType', 'sourceId'],
-          },
-        },
-      },
+      definition: FIND_RELATED_NOTES_TOOL_DEFINITION,
       execute: executeFindRelatedNotes,
     },
     {
-      definition: {
-        type: 'function',
-        function: {
-          name: 'rote_get_tags',
-          description: 'List the current user tags and counts.',
-          parameters: {
-            type: 'object',
-            properties: {
-              limit: { type: 'number' },
-            },
-          },
-        },
-      },
+      definition: GET_TAGS_TOOL_DEFINITION,
       execute: executeGetTags,
     },
   ];

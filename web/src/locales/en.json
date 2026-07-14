@@ -35,7 +35,7 @@
         }
       },
       "aiMemory": {
-        "tagline": "AI MEMORY",
+        "tagline": "MEMORY",
         "title": "Turn notes into a conversational AGENT",
         "subtitle": "Vectorize everything you record, then let an agent work over your own memory.",
         "features": {
@@ -45,7 +45,7 @@
           },
           "sources": {
             "title": "Self exploration",
-            "description": "Explore your notes with AI Memory and discover small surprises you may not have noticed yourself"
+            "description": "Explore your notes with Memory and discover small surprises you may not have noticed yourself"
           },
           "agent": {
             "title": "Related notes",
@@ -84,7 +84,7 @@
           },
           "sourceTitle": "Referenced sources",
           "sources": [
-            "AI Memory is basically working, but there is one unfortunate piece of news: it thinks I am ENFP, and I am not happy about that 😡",
+            "Memory is basically working, but there is one unfortunate piece of news: it thinks I am ENFP, and I am not happy about that 😡",
             "I have been adapting to iOS 17 these two days and thinking about whether it is a good idea. The workload is real, with strange bugs, maybe system-level issues, maybe because I do not have a real iOS 17 device to test on, maybe simulator bugs, and it may also add more code baggage.",
             "MBTI 16 personalities, suitable marriage age, INFJ sees it and immediately goes still",
             "Tags: life, self-regulation",
@@ -156,7 +156,7 @@
       "leftNavBar": {
         "home": "Home",
         "explore": "Explore",
-        "aiMemory": "AI Memory",
+        "aiMemory": "Memory",
         "archived": "Archive",
         "profile": "Profile",
         "experiment": "Experiment",
@@ -495,7 +495,7 @@
       }
     },
     "aiMemory": {
-      "title": "AI Memory",
+      "title": "Memory",
       "sideBarTitle": "Assistant Panel",
       "send": "Send",
       "clear": "Clear chat",
@@ -518,8 +518,8 @@
       },
       "saveAsArticle": "Save as article",
       "saved": "Saved",
-      "savedArticleTitle": "AI Memory Answer",
-      "savedArticleNoteContent": "AI Memory Answer",
+      "savedArticleTitle": "Memory Answer",
+      "savedArticleNoteContent": "Memory Answer",
       "savedSourceTitle": "Sources",
       "actions": {
         "copy": "Copy",
@@ -558,10 +558,10 @@
         "checking": "Checking...",
         "ready": "Configuration ready",
         "chatReady": "Chat model configured",
-        "unverified": "Complete certification to use AI",
-        "permissionDenied": "This account does not have permission to use site cloud AI chat",
-        "unavailable": "AI or vector index is not available",
-        "memoryUnavailable": "The chat model is configured, but AI memory still needs vector indexing"
+        "unverified": "AI access is controlled by administrator permissions",
+        "permissionDenied": "This account does not have AI chat permission",
+        "unavailable": "AI chat model is not configured",
+        "memoryUnavailable": "The chat model is configured, but memory still needs vector indexing"
       },
       "model": {
         "source": "Model source",
@@ -576,7 +576,7 @@
       },
       "personal": {
         "title": "Personal AI settings",
-        "description": "Choose the site model or your own OpenAI-compatible model/API for AI memory answers.",
+        "description": "Choose the site model or your own OpenAI-compatible model/API for memory answers.",
         "openSettings": "Personal AI settings",
         "siteMode": "Site AI",
         "siteModeDesc": "Use the admin-configured model and vector index.",
@@ -598,9 +598,9 @@
         "probeConfigured": "Configured",
         "probeMissing": "Not ready",
         "siteProbeChecking": "Reading the site AI status.",
-        "siteProbeReady": "Site AI chat is ready. AI memory availability depends on the vector index status.",
-        "siteProbePartial": "The site chat model and permission are configured, but account eligibility is not ready.",
-        "siteProbeMissing": "Site AI is not available yet. Use a personal model or contact an admin.",
+        "siteProbeReady": "Site AI chat is ready. Memory availability depends on the vector index status.",
+        "siteProbePartial": "The site chat model and permission are configured, but memory is not ready.",
+        "siteProbeMissing": "Site AI is not available yet. Use a personal model or ask an admin to check the AI chat permission and model settings.",
         "personalProbeReady": "The model/API is enabled. You can test it; answers will use this configuration.",
         "personalProbeDisabled": "Model/API settings are filled in, so you can test the API. Turn on the switch to use it for answers.",
         "personalProbeMissing": "Fill in the Base URL and model first.",
@@ -653,9 +653,15 @@
         "title": "Scope",
         "paginationMore": "More results",
         "time": "Time: {{label}}",
+        "latestItems": "Latest {{count}} records ({{field}})",
+        "dateFields": {
+          "createdAt": "created",
+          "updatedAt": "updated"
+        },
         "tags": "Tags: {{tags}}",
         "excludeTags": "Exclude tags: {{tags}}",
         "semanticScope": "Keywords: {{keywords}}",
+        "listSeparator": ", ",
         "sourceTypes": {
           "rote": "Content: notes",
           "article": "Content: articles",
@@ -686,10 +692,7 @@
         "fallback": "Fallback: {{reason}}",
         "providerError": "Model tool calling failed",
         "toolError": "Retrieval tool failed",
-        "warnings": "Warnings: {{warnings}}",
-        "warningLabels": {
-          "semanticSearchTextFallback": "Semantic search is unavailable; text search was used"
-        }
+        "warnings": "Warnings: {{warnings}}"
       },
       "timeline": {
         "title": "Progress",
@@ -1019,6 +1022,7 @@
         "security": "Security Settings",
         "oauth": "OAuth Login",
         "ai": "AI Settings",
+        "hooks": "Notification Hooks",
         "users": "User Management",
         "permissions": "Permissions"
       },
@@ -1140,6 +1144,102 @@
         "requireCertifiedUserForExplore": "Only allow certified users to appear in Explore",
         "requireCertifiedUserForExploreDesc": "When enabled, only certified users will have their public notes recommended in the Explore page; existing public notes remain accessible via direct links."
       },
+      "hooks": {
+        "title": "Notification Hooks",
+        "description": "Configure administrator notification channels for new users and notes created as public.",
+        "enabled": "Enable Admin Notifications",
+        "enabledDesc": "When enabled, selected events are sent to enabled administrator notification channels.",
+        "addChannel": "New Channel Type",
+        "add": "Add Channel",
+        "empty": "No notification channels yet.",
+        "channelEnabled": "Enable channel",
+        "channelEnabledDesc": "When disabled, this channel will not receive any administrator hook events.",
+        "channelName": "Channel Name",
+        "channelType": "Channel Type",
+        "configure": "Configure",
+        "remove": "Remove",
+        "test": "Test",
+        "testing": "Testing...",
+        "testSuccess": "Test sent ({{result}})",
+        "testFailed": "Test failed: {{error}}",
+        "unknownError": "Unknown error",
+        "events": "Trigger Events",
+        "enabledStatus": "Enabled",
+        "disabledStatus": "Disabled",
+        "notConfigured": "Not configured",
+        "adminPwaDetail": "Sends to existing administrator PWA subscriptions",
+        "noEvents": "No trigger events selected",
+        "dialog": {
+          "addTitle": "Add Notification Channel",
+          "addDesc": "Choose a channel type and fill in the configuration for administrator notifications.",
+          "editTitle": "Configure Notification Channel",
+          "editDesc": "Adjust the channel name, enabled state, events, and delivery parameters.",
+          "cancel": "Cancel",
+          "addAction": "Add Channel",
+          "applyAction": "Apply Configuration"
+        },
+        "channelDefaults": {
+          "bark": "Bark Notification",
+          "http": "HTTP Hook",
+          "admin_pwa": "Admin PWA"
+        },
+        "channelTypes": {
+          "bark": "Bark",
+          "http": "HTTP POST",
+          "admin_pwa": "Admin PWA"
+        },
+        "eventsMap": {
+          "userRegistered": "New User Registration",
+          "notePublicCreated": "Public Note Created"
+        },
+        "bark": {
+          "serverUrl": "Bark Server URL",
+          "key": "Bark Key",
+          "group": "Group",
+          "icon": "Icon URL",
+          "sound": "Sound",
+          "soundDefault": "Default Sound",
+          "sounds": {
+            "alarm": "Alarm",
+            "anticipate": "Anticipate",
+            "bell": "Bell",
+            "birdsong": "Birdsong",
+            "bloom": "Bloom",
+            "calypso": "Calypso",
+            "chime": "Chime",
+            "choo": "Choo",
+            "descent": "Descent",
+            "electronic": "Electronic",
+            "fanfare": "Fanfare",
+            "glass": "Glass",
+            "gotosleep": "Go To Sleep",
+            "healthnotification": "Health Notification",
+            "horn": "Horn",
+            "ladder": "Ladder",
+            "mailsent": "Mail Sent",
+            "minuet": "Minuet",
+            "multiwayinvitation": "Multiway Invitation",
+            "newmail": "New Mail",
+            "newsflash": "News Flash",
+            "noir": "Noir",
+            "paymentsuccess": "Payment Success",
+            "shake": "Shake",
+            "sherwoodforest": "Sherwood Forest",
+            "silence": "Silence",
+            "spell": "Spell",
+            "suspense": "Suspense",
+            "telegraph": "Telegraph",
+            "tiptoes": "Tiptoes",
+            "typewriters": "Typewriters",
+            "update": "Update"
+          }
+        },
+        "http": {
+          "url": "HTTP URL",
+          "headers": "Headers",
+          "headersDesc": "One header per line, formatted as Key: Value. The request body is always the JSON event envelope."
+        }
+      },
       "oauth": {
         "title": "OAuth Login Configuration",
         "description": "Configure third-party OAuth provider login settings, allowing users to login via platforms like GitHub.",
@@ -1247,7 +1347,7 @@
           "copy": "Copy command",
           "copySuccess": "Command copied",
           "copyFailed": "Failed to copy",
-          "embeddingNote": "AI memory also needs an embedding model. pgvector HNSW indexes require 2000 dimensions or fewer; if local embeddings return more dimensions, keep vector memory off or use a lower-dimensional embedding model."
+          "embeddingNote": "Memory also needs an embedding model. pgvector HNSW indexes require 2000 dimensions or fewer; if local embeddings return more dimensions, keep vector memory off or use a lower-dimensional embedding model."
         }
       },
       "users": {
@@ -1335,9 +1435,9 @@
             "label": "Upload Videos",
             "description": "Allow video uploads; this requires attachment upload permission."
           },
-          "ai.site.chat": {
-            "label": "Site Cloud AI Chat",
-            "description": "Allow the cloud chat model configured by the site."
+          "ai.chat": {
+            "label": "AI Chat",
+            "description": "Allow AI chat and memory tools when the system memory runtime is ready."
           }
         },
         "userDialog": {

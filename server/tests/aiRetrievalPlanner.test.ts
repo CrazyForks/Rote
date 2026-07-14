@@ -105,13 +105,202 @@ describe('canonicalizeSearchRotesArgs', () => {
     expect(lifecycleScopeToArchived(scope.lifecycleScope)).toBe(true);
   });
 
+  it('defaults an unbounded recent request to the latest 30 created records', () => {
+    const { scope } = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近我的记录里有哪些反复出现的主题？',
+      args: { query: '反复出现的主题' },
+    });
+
+    expect(scope.selection).toBe('recent');
+    expect(scope.dateField).toBe('createdAt');
+    expect(scope.limit).toBe(30);
+    expect(scope.timeRange).toBeNull();
+  });
+
+  it('keeps explicit relevance searches and supports updated records', () => {
+    const { scope } = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近修改过的 iOS 笔记',
+      args: {
+        query: 'iOS',
+        selection: 'relevance',
+        dateField: 'updatedAt',
+        timeExpression: '最近30天',
+      },
+    });
+
+    expect(scope.selection).toBe('relevance');
+    expect(scope.dateField).toBe('updatedAt');
+    expect(scope.timeRange?.label).toBe('最近30天');
+  });
+
+  it('overrides unbounded relevance when the user clearly asks for recent records', () => {
+    const explicitRelevance = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近我的记录',
+      args: { query: '工作', selection: 'relevance' },
+    });
+    const invalidRecentExpression = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近我的记录',
+      args: { query: '工作', selection: 'relevance', timeExpression: '最近' },
+    });
+
+    expect(explicitRelevance.scope.selection).toBe('recent');
+    expect(explicitRelevance.scope.limit).toBe(30);
+    expect(invalidRecentExpression.scope.selection).toBe('recent');
+    expect(invalidRecentExpression.scope.timeRange).toBeNull();
+  });
+
+  it('uses the recent corpus for broad analysis inside an explicit window', () => {
+    const { scope } = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      message: '最近30天有哪些反复出现的主题？',
+      args: { timeExpression: '最近30天' },
+    });
+
+    expect(scope.selection).toBe('recent');
+    expect(scope.timeRange?.label).toBe('最近30天');
+    expect(scope.limit).toBe(30);
+  });
+
   it('canonicalizes time ranges', () => {
     expect(canonicalizeTimeRange({ from: '2026-01-01', to: '2026-01-03' })).toMatchObject({
       from: '2026-01-01T00:00:00+08:00',
       to: '2026-01-03T23:59:59+08:00',
     });
+    expect(
+      canonicalizeTimeRange({
+        from: '2026-01-01T08:00:00+08:00',
+        to: '2026-01-03T18:30:00+08:00',
+      })
+    ).toMatchObject({
+      from: '2026-01-01T08:00:00+08:00',
+      to: '2026-01-03T18:30:00+08:00',
+    });
     expect(canonicalizeTimeRange({ timeExpression: '今天' })?.label).toBe('今天');
     expect(canonicalizeTimeRange({ timeExpression: '最近7天' })?.label).toBe('最近7天');
+  });
+
+  it('normalizes structured relative from/to ranges before SQL use', () => {
+    const range = canonicalizeTimeRange({ from: '60 days ago', to: '30 days ago' });
+
+    expect(range?.from).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00\+08:00$/);
+    expect(range?.to).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59\+08:00$/);
+    expect(range?.from).not.toContain('days ago');
+    expect(range?.to).not.toContain('days ago');
+    expect(Date.parse(range?.from || '')).toBeLessThan(Date.parse(range?.to || ''));
+  });
+
+  it('anchors relative dates to the client request date', () => {
+    const range = canonicalizeTimeRange({ timeExpression: '上月' }, undefined, {
+      nowIso: '2026-07-07T14:14:35.000Z',
+      localDate: '2026-07-07',
+      localDateTime: '2026-07-07T22:14:35+08:00',
+      timeZone: 'Asia/Shanghai',
+      utcOffsetMinutes: 480,
+    });
+
+    expect(range).toMatchObject({
+      from: '2026-06-01T00:00:00+08:00',
+      to: '2026-06-30T23:59:59+08:00',
+      label: '上个月',
+    });
+  });
+
+  it('prefers structured timeRange DSL over free-text fields', () => {
+    expect(
+      canonicalizeTimeRange({
+        timeRange: { type: 'absolute', fromDate: '2026-05-08', toDate: '2026-05-09' },
+        from: 'bad input',
+        to: 'also bad',
+      })
+    ).toMatchObject({
+      from: '2026-05-08T00:00:00+08:00',
+      to: '2026-05-09T23:59:59+08:00',
+    });
+
+    const rolling = canonicalizeTimeRange({
+      timeRange: { type: 'rolling', amount: 7, unit: 'day' },
+    });
+    expect(rolling?.from).toMatch(/^\d{4}-\d{2}-\d{2}T00:00:00\+08:00$/);
+    expect(rolling?.to).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59\+08:00$/);
+    expect(rolling?.label).toBe('last 7 days');
+
+    const relativeBetween = canonicalizeTimeRange({
+      timeRange: {
+        type: 'relative_between',
+        fromRelative: { amount: 60, unit: 'day', direction: 'ago' },
+        toRelative: { amount: 30, unit: 'day', direction: 'ago' },
+      },
+    });
+    expect(relativeBetween?.from).toMatch(/T00:00:00\+08:00$/);
+    expect(relativeBetween?.to).toMatch(/T23:59:59\+08:00$/);
+    expect(Date.parse(relativeBetween?.from || '')).toBeLessThan(
+      Date.parse(relativeBetween?.to || '')
+    );
+
+    expect(canonicalizeTimeRange({ timeRange: { type: 'preset', preset: 'today' } })?.label).toBe(
+      '今天'
+    );
+  });
+
+  it('honors structured timeRange type when extra fields are present', () => {
+    expect(
+      canonicalizeTimeRange({
+        timeRange: {
+          type: 'absolute',
+          fromDate: '2026-05-08',
+          toDate: '2026-05-09',
+          unit: 'day',
+        },
+      })
+    ).toMatchObject({
+      from: '2026-05-08T00:00:00+08:00',
+      to: '2026-05-09T23:59:59+08:00',
+    });
+
+    expect(
+      canonicalizeTimeRange({
+        timeRange: {
+          type: 'absolute',
+          preset: 'today',
+          fromDate: '2026-05-08',
+          toDate: '2026-05-09',
+        },
+      })?.label
+    ).toBe('2026-05-08 到 2026-05-09');
+  });
+
+  it('ignores invalid time ranges instead of passing them through', () => {
+    const warnings: string[] = [];
+
+    expect(canonicalizeTimeRange({ from: 'sixty days ago', to: '30 days ago' }, warnings)).toBe(
+      null
+    );
+    expect(warnings).toContain('invalid_time_range_ignored');
+
+    const scoped = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      args: { from: '2026-02-30', to: '2026-03-01' },
+    });
+    expect(scoped.scope.timeRange).toBeNull();
+    expect(scoped.warnings).toContain('invalid_time_range_ignored');
+
+    const dslScoped = canonicalizeSearchRotesArgs({
+      ownerId: 'u1',
+      availableTags: AVAILABLE_TAGS,
+      args: { timeRange: { type: 'rolling', amount: 0, unit: 'day' } },
+    });
+    expect(dslScoped.scope.timeRange).toBeNull();
+    expect(dslScoped.warnings).toContain('invalid_time_range_ignored');
   });
 
   it('clamps limit and validates sourceTypes', () => {
